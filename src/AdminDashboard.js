@@ -1,26 +1,162 @@
 // src/AdminDashboard.js
-import React from 'react';
-import { auth } from './firebase';
+import React, { useEffect, useState } from 'react';
+import { auth, db } from './firebase';
 import { useNavigate } from 'react-router-dom';
+import {
+  collection,
+  getDocs,
+  doc,
+  getDoc,
+  query,
+  where,
+  Timestamp
+} from 'firebase/firestore';
+
+
 
 function AdminDashboard({ displayName }) {
   const navigate = useNavigate();
+  const [users, setUsers] = useState([]);
+  const [trackProgress, setTrackProgress] = useState({});
+  const [loading, setLoading] = useState(true);
 
   const handleLogout = async () => {
     await auth.signOut();
     navigate('/');
   };
 
-  return (
-    <div className="main-wrapper">
-      <div className="glass-card">
-        <h2>Welcome, {displayName || "Admin"}!</h2>
-        <p>This is the <b>Admin Dashboard</b>.</p>
-        <p>(Here you’ll manage users, see reports, etc.)</p>
-        <button className="button-primary" onClick={handleLogout} style={{marginTop: 32}}>Logout</button>
+  useEffect(() => {
+    async function fetchData() {
+      const userSnapshot = await getDocs(collection(db, 'users'));
+      const usersData = [];
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const startOfDay = Timestamp.fromDate(today);
+
+      const trackStats = {};
+
+      for (const docSnap of userSnapshot.docs) {
+        const userData = docSnap.data();
+        const userId = docSnap.id;
+
+        const assignedTrack = userData.assignedTrack || 'N/A';
+        const role = userData.role || 'worker';
+        const name = userData.name || 'Unnamed';
+
+        // 1. Check clock-in status
+        const clockQuery = query(
+          collection(db, 'users', userId, 'clockLogs'),
+          where('timestamp', '>=', startOfDay)
+        );
+        const clockLogs = await getDocs(clockQuery);
+
+        let lastLog = null;
+        clockLogs.forEach(log => {
+          const data = log.data();
+          if (!lastLog || data.timestamp.seconds > lastLog.timestamp.seconds) {
+            lastLog = data;
+          }
+        });
+
+        const isClockedIn = lastLog && lastLog.type === 'in';
+
+        // 2. Get today's completed tasks
+        const completedQuery = query(
+          collection(db, 'users', userId, 'completedTasks'),
+          where('completedAt', '>=', startOfDay)
+        );
+        const completedSnapshot = await getDocs(completedQuery);
+        const completedCount = completedSnapshot.size;
+
+        // 3. Get total tasks from track template
+        let totalTasks = 0;
+        const templateDoc = await getDoc(doc(db, 'tracks', assignedTrack, 'templates', role));
+        if (templateDoc.exists()) {
+          totalTasks = (templateDoc.data().tasks || []).length;
+        }
+
+        const percentDone = totalTasks > 0 ? Math.round((completedCount / totalTasks) * 100) : 0;
+
+        usersData.push({
+          id: userId,
+          name,
+          role,
+          assignedTrack,
+          isClockedIn,
+          completedCount,
+          totalTasks,
+          percentDone
+        });
+
+        // Track-wide aggregation
+        if (!trackStats[assignedTrack]) {
+          trackStats[assignedTrack] = {
+            totalTasks: 0,
+            completedTasks: 0
+          };
+        }
+
+        trackStats[assignedTrack].totalTasks += totalTasks;
+        trackStats[assignedTrack].completedTasks += completedCount;
+      }
+
+      setUsers(usersData);
+      setTrackProgress(trackStats);
+      setLoading(false);
+    }
+
+    fetchData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="main-wrapper">
+        <div className="glass-card">
+          <p>Loading live worker data...</p>
+        </div>
       </div>
+    );
+  }
+
+  return (
+  <div className="main-wrapper admin-dashboard-layout">
+    <div className="glass-card welcome-card">
+      <h2>Welcome, {displayName || "Admin"}!</h2>
+      <p>This is your live owner dashboard.</p>
+      <button className="button-primary" onClick={handleLogout} style={{ marginTop: 32 }}>
+        Logout
+      </button>
     </div>
-  );
+
+    <div className="glass-card team-overview-card">
+      <h3>Team Overview</h3>
+      {users.map((user, index) => (
+        <div key={index} className="card-inner">
+          <p><b>{user.displayName || "Unnamed"}</b></p>
+          <p>Role: {user.role}</p>
+          <p>Track: {user.assignedTrack || "N/A"}</p>
+          <p>Status: <span style={{ color: user.clockedIn ? 'lightgreen' : 'gray' }}>
+            {user.clockedIn ? 'Clocked In' : 'Clocked Out'}
+          </span></p>
+          <p>Task Progress: {user.taskProgress || '0%'} ({user.completedTasks || 0}/{user.totalTasks || 0})</p>
+        </div>
+      ))}
+    </div>
+
+    <div className="glass-card progress-summary-card">
+      <h3>Progress Summary</h3>
+      {Object.entries(trackProgress).map(([trackName, data], index) => (
+        <div key={index} className="card-inner">
+          <p><b>{trackName}</b></p>
+          <p>Completed Tasks: {data.completed}/{data.total}</p>
+          <p>Track Completion: <b>{Math.round((data.completed / data.total) * 100)}%</b></p>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
 }
 
 export default AdminDashboard;

@@ -24,6 +24,14 @@ body {
   backdrop-filter: blur(12px);
   border: 1px solid rgba(255,255,255,0.08);
 }
+.card-inner {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
 .input-field {
   width: 100%;
   padding: 12px 14px;
@@ -57,4 +65,38 @@ body {
 .button-primary:hover {
   background: linear-gradient(90deg, #43a1f7 20%, #48ff99 100%);
   color: #000;
+}
+
+.admin-dashboard-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 32px;
+  align-items: start;
+  padding: 40px;
+  flex-wrap: wrap;
+}
+
+.welcome-card {
+  grid-column: 1 / 2;
+}
+
+.team-overview-card {
+  grid-column: 2 / 3;
+}
+
+.progress-summary-card {
+  grid-column: 3 / 4;
+}
+
+/* For mobile responsiveness */
+@media (max-width: 900px) {
+  .admin-dashboard-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .welcome-card,
+  .team-overview-card,
+  .progress-summary-card {
+    grid-column: 1 / -1;
+  }
 }

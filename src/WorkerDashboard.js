@@ -12,10 +12,14 @@ import {
   addDoc,
   Timestamp
 } from 'firebase/firestore';
+import { auth } from './firebase';
+import { useNavigate } from 'react-router-dom';
+
 
 function WorkerDashboard() {
   const { user, displayName } = useAuth();
   const [tasks, setTasks] = useState([]);
+  const [completedTaskNames, setCompletedTaskNames] = useState([]);
   const [loading, setLoading] = useState(true);
   const [userLocation, setUserLocation] = useState(null);
   const [locationError, setLocationError] = useState('');
@@ -24,6 +28,14 @@ function WorkerDashboard() {
   const [clockedIn, setClockedIn] = useState(false);
   const [clockLoading, setClockLoading] = useState(false);
   const [clockStatusMsg, setClockStatusMsg] = useState('');
+  const [assignedTrack, setAssignedTrack] = useState('');
+  const [role, setRole] = useState('');
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await auth.signOut();
+    navigate('/');
+};
 
   // Get user's GPS location
   useEffect(() => {
@@ -48,12 +60,15 @@ function WorkerDashboard() {
 
   // Fetch tasks and track location
   useEffect(() => {
-    async function fetchTasksAndTrackCoords() {
+    async function fetchData() {
       if (!user) return;
       const userDoc = await getDoc(doc(db, "users", user.uid));
       if (!userDoc.exists()) return;
 
       const { assignedTrack, role } = userDoc.data();
+      setAssignedTrack(assignedTrack);
+      setRole(role);
+
       const taskDoc = await getDoc(doc(db, "tracks", assignedTrack, "templates", role));
       if (taskDoc.exists()) {
         setTasks(taskDoc.data().tasks || []);
@@ -69,10 +84,25 @@ function WorkerDashboard() {
         });
       }
 
+      // Load today's completed task names
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const startOfDay = Timestamp.fromDate(today);
+
+      const logsRef = collection(db, "users", user.uid, "completedTasks");
+      const q = query(logsRef, where("completedAt", ">=", startOfDay));
+      const snapshot = await getDocs(q);
+
+      const doneTasks = [];
+      snapshot.forEach((doc) => {
+        doneTasks.push(doc.data().taskName);
+      });
+
+      setCompletedTaskNames(doneTasks);
       setLoading(false);
     }
 
-    fetchTasksAndTrackCoords();
+    fetchData();
   }, [user]);
 
   // Calculate distance to track
@@ -170,6 +200,20 @@ function WorkerDashboard() {
     setClockLoading(false);
   }
 
+  // Handle task checkbox click
+  async function handleTaskCheck(taskName) {
+    if (completedTaskNames.includes(taskName)) return;
+
+    await addDoc(collection(db, "users", user.uid, "completedTasks"), {
+      taskName,
+      completedAt: Timestamp.now(),
+      trackId: assignedTrack,
+      role
+    });
+
+    setCompletedTaskNames(prev => [...prev, taskName]);
+  }
+
   if (loading) {
     return (
       <div className="main-wrapper">
@@ -182,6 +226,12 @@ function WorkerDashboard() {
 
   return (
     <div className="main-wrapper" style={{ minHeight: "100vh", alignItems: "center", justifyContent: "center", display: "flex" }}>
+      <div style={{ position: "absolute", top: 20, right: 20 }}>
+  <button className="button-primary" onClick={handleLogout}>
+    Logout
+  </button>
+</div>
+
       {locationError ? (
         <div className="glass-card" style={{
           background: "rgba(30, 30, 30, 0.92)",
@@ -232,10 +282,17 @@ function WorkerDashboard() {
           ) : (
             <ul>
               {tasks.map((task) => (
-                <li key={task.id} style={{ margin: "16px 0", fontSize: 18 }}>
-                  <input type="checkbox" disabled />
-                  {" "}
-                  {task.name}
+                <li key={task.id || task.name} style={{ margin: "16px 0", fontSize: 18 }}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={completedTaskNames.includes(task.name)}
+                      disabled={completedTaskNames.includes(task.name)}
+                      onChange={() => handleTaskCheck(task.name)}
+                    />
+                    {" "}
+                    {task.name}
+                  </label>
                 </li>
               ))}
             </ul>
