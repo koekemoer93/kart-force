@@ -7,22 +7,24 @@ import {
   query,
   where,
   getDocs,
-  doc,
-  getDoc,
   Timestamp,
+  doc,
+  getDoc
 } from 'firebase/firestore';
+import './theme.css';
+import './TrackDetailsPage.css';
 import TopNav from './components/TopNav';
 
-function TrackDetailsPage() {
+const TrackDetailsPage = () => {
   const { trackName } = useParams();
   const [workers, setWorkers] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchTrackData = async () => {
-      const usersRef = collection(db, 'users');
-      const trackQuery = query(usersRef, where('assignedTrack', '==', trackName));
-      const snapshot = await getDocs(trackQuery);
+    const fetchTrackWorkers = async () => {
+      const userRef = collection(db, 'users');
+      const q = query(userRef, where('assignedTrack', '==', trackName));
+      const snapshot = await getDocs(q);
 
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -34,40 +36,20 @@ function TrackDetailsPage() {
         const user = docSnap.data();
         const userId = docSnap.id;
 
-        // Clock-in logs
-        const clockLogsRef = collection(db, 'users', userId, 'clockLogs');
-        const clockQuery = query(clockLogsRef, where('timestamp', '>=', startOfDay));
-        const clockSnap = await getDocs(clockQuery);
-
-        let lastLog = null;
-        clockSnap.forEach(log => {
-          const logData = log.data();
-          if (!lastLog || logData.timestamp.seconds > lastLog.timestamp.seconds) {
-            lastLog = logData;
-          }
-        });
-
-        const isClockedIn = lastLog?.type === 'in';
-
-        // Task completion
         const completedRef = collection(db, 'users', userId, 'completedTasks');
         const completedQuery = query(completedRef, where('completedAt', '>=', startOfDay));
-        const completedSnap = await getDocs(completedQuery);
-        const completedCount = completedSnap.size;
+        const completedSnapshot = await getDocs(completedQuery);
 
-        const templateRef = doc(db, 'tracks', trackName, 'templates', user.role);
-        const templateSnap = await getDoc(templateRef);
-        const totalTasks = templateSnap.exists() ? (templateSnap.data().tasks || []).length : 0;
-
-        const percent = totalTasks > 0 ? Math.round((completedCount / totalTasks) * 100) : 0;
+        const role = user.role || 'worker';
+        const templateDoc = await getDoc(doc(db, 'tracks', trackName, 'templates', role));
+        const totalTasks = templateDoc.exists() ? (templateDoc.data().tasks || []).length : 0;
 
         data.push({
           name: user.name || 'Unnamed',
-          role: user.role || 'worker',
-          isClockedIn,
-          completedCount,
-          totalTasks,
-          percent,
+          role,
+          completed: completedSnapshot.size,
+          total: totalTasks,
+          percent: totalTasks > 0 ? Math.round((completedSnapshot.size / totalTasks) * 100) : 0
         });
       }
 
@@ -75,7 +57,7 @@ function TrackDetailsPage() {
       setLoading(false);
     };
 
-    fetchTrackData();
+    fetchTrackWorkers();
   }, [trackName]);
 
   if (loading) {
@@ -84,7 +66,7 @@ function TrackDetailsPage() {
         <TopNav role="admin" />
         <div className="main-wrapper">
           <div className="glass-card">
-            <p>Loading track details for {trackName}...</p>
+            <p>Loading track data...</p>
           </div>
         </div>
       </>
@@ -95,21 +77,27 @@ function TrackDetailsPage() {
     <>
       <TopNav role="admin" />
       <div className="main-wrapper">
+        <div className="glass-card track-header">
+          <h2>{trackName.replace(/_/g, ' ')}</h2>
+          <p>Live Dashboard</p>
+        </div>
+
         <div className="glass-card">
-          <h2>{trackName} – Track Overview</h2>
-          {workers.map((worker, index) => (
-            <div key={index} className="card-inner">
-              <p><b>{worker.name}</b> – {worker.role}</p>
-              <p>Status: <span style={{ color: worker.isClockedIn ? 'lightgreen' : 'gray' }}>
-                {worker.isClockedIn ? 'Clocked In' : 'Clocked Out'}
-              </span></p>
-              <p>Tasks: {worker.completedCount}/{worker.totalTasks} – <b>{worker.percent}%</b></p>
+          <h3>Workers Assigned</h3>
+          {workers.map((w, i) => (
+            <div key={i} className="card-inner">
+              <p><b>{w.name}</b> — {w.role}</p>
+              <p>Tasks Done: {w.completed}/{w.total}</p>
+              <p>Progress: <b>{w.percent}%</b></p>
+              <div className="progress-bar">
+                <div className="progress-fill" style={{ width: `${w.percent}%` }} />
+              </div>
             </div>
           ))}
         </div>
       </div>
     </>
   );
-}
+};
 
 export default TrackDetailsPage;

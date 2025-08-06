@@ -1,41 +1,50 @@
-// src/components/TopNav.js
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import './TopNav.css';
+import { signOut } from 'firebase/auth';
+import { auth } from '../firebase';
 
 const TopNav = ({ role }) => {
   const navigate = useNavigate();
 
-  const tracks = [
-    'Syringa Park',
-    'Epic Karting Pavilion',
-    'Midlands',
-    'Clearwater',
-    'Indykart Parkview'
-  ];
-
-  const goToTrack = (trackName) => {
-    const formatted = trackName.toLowerCase().replace(/\s+/g, '-');
-    navigate(`/track-details/${formatted}`);
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      navigate('/');
+    } catch (error) {
+      console.error('Logout failed', error);
+    }
   };
+
+  const trackButtons = [
+    { label: 'Dashboard', path: '/admin-dashboard' },
+    { label: 'Syringa Park', path: '/track/syringa' },
+    { label: 'Epic Karting Pavilion', path: '/track/pavilion' },
+    { label: 'Midlands', path: '/track/midlands' },
+    { label: 'Clearwater', path: '/track/clearwater' },
+    { label: 'Indykart Parkview', path: '/track/parkview' },
+  ];
 
   return (
     <div className="top-nav">
-      <div className="logo-text">Kart Force</div>
-      <div className="middle">
-        {role === 'admin' && tracks.map(track => (
-          <button
-            key={track}
-            className="nav-button"
-            onClick={() => goToTrack(track)}
-          >
-            {track}
-          </button>
-        ))}
+      <div className="nav-left">
+        <h1 className="logo-text">Kart Force</h1>
+        {role === 'admin' && (
+          <div className="nav-buttons">
+            {trackButtons.map((button, idx) => (
+              <button
+                key={idx}
+                className="nav-btn"
+                onClick={() => navigate(button.path)}
+              >
+                {button.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
-      <button className="logout-button" onClick={() => navigate('/')}>
-        Logout
-      </button>
+      <div className="nav-right">
+        <button className="logout-btn" onClick={handleLogout}>Logout</button>
+      </div>
     </div>
   );
 };
