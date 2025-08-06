@@ -1,24 +1,45 @@
-import logo from './logo.svg';
-import './App.css';
+// src/App.js
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import AdminDashboard from './AdminDashboard';
+import WorkerDashboard from './WorkerDashboard';
+import { AuthProvider, useAuth } from './AuthContext';
+import LoginPage from './LoginPage'; // We'll move LoginPage into its own file for cleanliness
+
+function ProtectedRoute({ children, roleRequired }) {
+  const { user, role, loading } = useAuth();
+
+  if (loading) return null; // or a loading spinner
+  if (!user) return <Navigate to="/" />;
+  if (roleRequired && role !== roleRequired) return <Navigate to="/" />;
+  return children;
+}
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <AuthProvider>
+      <Router>
+        <Routes>
+          <Route path="/" element={<LoginPage />} />
+          <Route
+            path="/admin-dashboard"
+            element={
+              <ProtectedRoute roleRequired="admin">
+                <AdminDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/worker-dashboard"
+            element={
+              <ProtectedRoute roleRequired="worker">
+                <WorkerDashboard />
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </Router>
+    </AuthProvider>
   );
 }
 
