@@ -11,8 +11,7 @@ import {
   where,
   Timestamp
 } from 'firebase/firestore';
-
-
+import TopNav from './components/TopNav';
 
 function AdminDashboard({ displayName }) {
   const navigate = useNavigate();
@@ -71,9 +70,11 @@ function AdminDashboard({ displayName }) {
 
         // 3. Get total tasks from track template
         let totalTasks = 0;
-        const templateDoc = await getDoc(doc(db, 'tracks', assignedTrack, 'templates', role));
-        if (templateDoc.exists()) {
-          totalTasks = (templateDoc.data().tasks || []).length;
+        if (assignedTrack !== 'N/A') {
+          const templateDoc = await getDoc(doc(db, 'tracks', assignedTrack, 'templates', role));
+          if (templateDoc.exists()) {
+            totalTasks = (templateDoc.data().tasks || []).length;
+          }
         }
 
         const percentDone = totalTasks > 0 ? Math.round((completedCount / totalTasks) * 100) : 0;
@@ -92,13 +93,13 @@ function AdminDashboard({ displayName }) {
         // Track-wide aggregation
         if (!trackStats[assignedTrack]) {
           trackStats[assignedTrack] = {
-            totalTasks: 0,
-            completedTasks: 0
+            total: 0,
+            completed: 0
           };
         }
 
-        trackStats[assignedTrack].totalTasks += totalTasks;
-        trackStats[assignedTrack].completedTasks += completedCount;
+        trackStats[assignedTrack].total += totalTasks;
+        trackStats[assignedTrack].completed += completedCount;
       }
 
       setUsers(usersData);
@@ -111,52 +112,57 @@ function AdminDashboard({ displayName }) {
 
   if (loading) {
     return (
-      <div className="main-wrapper">
-        <div className="glass-card">
-          <p>Loading live worker data...</p>
+      <>
+       <TopNav role="admin" onLogout={handleLogout} />
+        <div className="main-wrapper">
+          <div className="glass-card">
+            <p>Loading live worker data...</p>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-  <div className="main-wrapper admin-dashboard-layout">
-    <div className="glass-card welcome-card">
-      <h2>Welcome, {displayName || "Admin"}!</h2>
-      <p>This is your live owner dashboard.</p>
-      <button className="button-primary" onClick={handleLogout} style={{ marginTop: 32 }}>
-        Logout
-      </button>
-    </div>
-
-    <div className="glass-card team-overview-card">
-      <h3>Team Overview</h3>
-      {users.map((user, index) => (
-        <div key={index} className="card-inner">
-          <p><b>{user.displayName || "Unnamed"}</b></p>
-          <p>Role: {user.role}</p>
-          <p>Track: {user.assignedTrack || "N/A"}</p>
-          <p>Status: <span style={{ color: user.clockedIn ? 'lightgreen' : 'gray' }}>
-            {user.clockedIn ? 'Clocked In' : 'Clocked Out'}
-          </span></p>
-          <p>Task Progress: {user.taskProgress || '0%'} ({user.completedTasks || 0}/{user.totalTasks || 0})</p>
+    <>
+      <TopNav role="admin" />
+      <div className="main-wrapper admin-dashboard-layout">
+        <div className="glass-card welcome-card">
+          <h2>Welcome, {displayName || "Admin"}!</h2>
+          <p>This is your live owner dashboard.</p>
+          <button className="button-primary" onClick={handleLogout} style={{ marginTop: 32 }}>
+            Logout
+          </button>
         </div>
-      ))}
-    </div>
 
-    <div className="glass-card progress-summary-card">
-      <h3>Progress Summary</h3>
-      {Object.entries(trackProgress).map(([trackName, data], index) => (
-        <div key={index} className="card-inner">
-          <p><b>{trackName}</b></p>
-          <p>Completed Tasks: {data.completed}/{data.total}</p>
-          <p>Track Completion: <b>{Math.round((data.completed / data.total) * 100)}%</b></p>
+        <div className="glass-card team-overview-card">
+          <h3>Team Overview</h3>
+          {users.map((user, index) => (
+            <div key={index} className="card-inner">
+              <p><b>{user.name || "Unnamed"}</b></p>
+              <p>Role: {user.role}</p>
+              <p>Track: {user.assignedTrack}</p>
+              <p>Status: <span style={{ color: user.isClockedIn ? 'lightgreen' : 'gray' }}>
+                {user.isClockedIn ? 'Clocked In' : 'Clocked Out'}
+              </span></p>
+              <p>Task Progress: {user.percentDone}% ({user.completedCount}/{user.totalTasks})</p>
+            </div>
+          ))}
         </div>
-      ))}
-    </div>
-  </div>
-);
 
+        <div className="glass-card progress-summary-card">
+          <h3>Progress Summary</h3>
+          {Object.entries(trackProgress).map(([trackName, data], index) => (
+            <div key={index} className="card-inner">
+              <p><b>{trackName}</b></p>
+              <p>Completed Tasks: {data.completed}/{data.total}</p>
+              <p>Track Completion: <b>{Math.round((data.completed / data.total) * 100)}%</b></p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
 }
 
 export default AdminDashboard;
