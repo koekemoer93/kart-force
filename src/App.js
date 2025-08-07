@@ -6,6 +6,8 @@ import WorkerDashboard from './WorkerDashboard';
 import { AuthProvider, useAuth } from './AuthContext';
 import LoginPage from './LoginPage';
 import TrackDetailsPage from './TrackDetailsPage'; // ✅ ADDED
+import TaskHistoryPage from './TaskHistoryPage';
+
 
 function ProtectedRoute({ children, roleRequired }) {
   const { user, role, loading } = useAuth();
@@ -22,10 +24,10 @@ function App() {
       <Router>
         <Routes>
           <Route path="/" element={<LoginPage />} />
+          <Route path="/task-history" element={<TaskHistoryPage />} />
+
           
-          <Route
-            path="/admin-dashboard"
-            element={
+          <Route path="/admin-dashboard"element={
               <ProtectedRoute roleRequired="admin">
                 <AdminDashboard />
               </ProtectedRoute>

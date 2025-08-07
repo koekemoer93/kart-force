@@ -17,13 +17,18 @@ body {
   background: rgba(20, 20, 20, 0.75);
   border-radius: 24px;
   box-shadow: 0 4px 32px 0 rgba(0,0,0,0.22);
-  padding: 32px 24px;
-  max-width: 400px;
+  padding: 48px 40px;               /* More padding for bigger feel */
+  max-width: 700px;                 /* Make it much wider */
+  min-height: 420px;                /* Taller by default */
   width: 100%;
-  margin: 16px;
-  backdrop-filter: blur(12px);
+  margin: 24px auto;                /* More margin for desktop */
+  backdrop-filter: blur(16px);      /* Slightly more blur */
   border: 1px solid rgba(255,255,255,0.08);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
+
 .card-inner {
   background: rgba(255, 255, 255, 0.03);
   border-radius: 16px;
@@ -148,4 +153,12 @@ body {
 
 .nav-btn:hover {
   background-color: #333;
+}
+
+@media (max-width: 800px) {
+  .glass-card {
+    max-width: 98vw;
+    padding: 18px 6vw;
+    min-height: unset;
+  }
 }

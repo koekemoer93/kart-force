@@ -14,6 +14,7 @@ import {
 } from 'firebase/firestore';
 import { auth } from './firebase';
 import { useNavigate } from 'react-router-dom';
+import TopNav from './components/TopNav'; // Adjust path if needed
 
 
 function WorkerDashboard() {
@@ -35,7 +36,7 @@ function WorkerDashboard() {
   const handleLogout = async () => {
     await auth.signOut();
     navigate('/');
-};
+  };
 
   // Get user's GPS location
   useEffect(() => {
@@ -43,7 +44,6 @@ function WorkerDashboard() {
       setLocationError('Geolocation is not supported by your browser');
       return;
     }
-
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setUserLocation({
@@ -64,18 +64,15 @@ function WorkerDashboard() {
       if (!user) return;
       const userDoc = await getDoc(doc(db, "users", user.uid));
       if (!userDoc.exists()) return;
-
       const { assignedTrack, role } = userDoc.data();
       setAssignedTrack(assignedTrack);
       setRole(role);
-
       const taskDoc = await getDoc(doc(db, "tracks", assignedTrack, "templates", role));
       if (taskDoc.exists()) {
         setTasks(taskDoc.data().tasks || []);
       } else {
         setTasks([]);
       }
-
       const trackDoc = await getDoc(doc(db, "tracks", assignedTrack));
       if (trackDoc.exists()) {
         setTrackCoords({
@@ -83,25 +80,20 @@ function WorkerDashboard() {
           longitude: trackDoc.data().longitude,
         });
       }
-
       // Load today's completed task names
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const startOfDay = Timestamp.fromDate(today);
-
       const logsRef = collection(db, "users", user.uid, "completedTasks");
       const q = query(logsRef, where("completedAt", ">=", startOfDay));
       const snapshot = await getDocs(q);
-
       const doneTasks = [];
       snapshot.forEach((doc) => {
         doneTasks.push(doc.data().taskName);
       });
-
       setCompletedTaskNames(doneTasks);
       setLoading(false);
     }
-
     fetchData();
   }, [user]);
 
@@ -134,16 +126,13 @@ function WorkerDashboard() {
   // Fetch today's clock in/out status
   useEffect(() => {
     if (!user) return;
-
     async function fetchClockStatus() {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const startOfDay = Timestamp.fromDate(today);
-
       const logsRef = collection(db, "users", user.uid, "clockLogs");
       const q = query(logsRef, where("timestamp", ">=", startOfDay));
       const querySnapshot = await getDocs(q);
-
       let isIn = false;
       let lastLog = null;
       querySnapshot.forEach((doc) => {
@@ -152,12 +141,10 @@ function WorkerDashboard() {
           lastLog = data;
         }
       });
-
       if (lastLog && lastLog.type === "in") isIn = true;
       setClockedIn(isIn);
       setClockStatusMsg(isIn ? "You are clocked in" : "You are not clocked in");
     }
-
     fetchClockStatus();
   }, [user]);
 
@@ -165,15 +152,12 @@ function WorkerDashboard() {
   async function handleClockButton() {
     if (!user || !userLocation) return;
     setClockLoading(true);
-
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const startOfDay = Timestamp.fromDate(today);
-
     const logsRef = collection(db, "users", user.uid, "clockLogs");
     const q = query(logsRef, where("timestamp", ">=", startOfDay));
     const querySnapshot = await getDocs(q);
-
     let isCurrentlyIn = false;
     let lastLog = null;
     querySnapshot.forEach((doc) => {
@@ -182,19 +166,15 @@ function WorkerDashboard() {
         lastLog = data;
       }
     });
-
     if (lastLog && lastLog.type === "in") isCurrentlyIn = true;
-
     const newType = isCurrentlyIn ? "out" : "in";
     const msg = newType === "in" ? "You are clocked in" : "You are clocked out";
-
     await addDoc(logsRef, {
       type: newType,
       timestamp: Timestamp.now(),
       latitude: userLocation.latitude,
       longitude: userLocation.longitude,
     });
-
     setClockedIn(!isCurrentlyIn);
     setClockStatusMsg(msg);
     setClockLoading(false);
@@ -203,16 +183,57 @@ function WorkerDashboard() {
   // Handle task checkbox click
   async function handleTaskCheck(taskName) {
     if (completedTaskNames.includes(taskName)) return;
-
     await addDoc(collection(db, "users", user.uid, "completedTasks"), {
       taskName,
       completedAt: Timestamp.now(),
       trackId: assignedTrack,
       role
     });
-
     setCompletedTaskNames(prev => [...prev, taskName]);
   }
+
+  // --- Progress Ring helper ---
+  function ProgressRing({ percent }) {
+    const radius = 32;
+    const stroke = 6;
+    const normalizedRadius = radius - stroke * 0.5;
+    const circumference = normalizedRadius * 2 * Math.PI;
+    const strokeDashoffset = circumference - (percent / 100) * circumference;
+    return (
+      <svg height={radius * 2} width={radius * 2}>
+        <circle
+          stroke="#232e1f"
+          fill="transparent"
+          strokeWidth={stroke}
+          r={normalizedRadius}
+          cx={radius}
+          cy={radius}
+        />
+        <circle
+          stroke="#24ff98"
+          fill="transparent"
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={circumference + ' ' + circumference}
+          style={{ strokeDashoffset, transition: "stroke-dashoffset 0.5s" }}
+          r={normalizedRadius}
+          cx={radius}
+          cy={radius}
+        />
+        <text
+          x="50%" y="54%"
+          textAnchor="middle"
+          fill="#fff"
+          fontSize="18px"
+          fontWeight="bold"
+          dy="0.3em"
+        >{percent}%</text>
+      </svg>
+    );
+  }
+
+  // Calculate task completion percent
+  const percent = tasks.length === 0 ? 0 : Math.round((completedTaskNames.length / tasks.length) * 100);
 
   if (loading) {
     return (
@@ -225,12 +246,12 @@ function WorkerDashboard() {
   }
 
   return (
+  <>
+    <TopNav role="worker" />
     <div className="main-wrapper" style={{ minHeight: "100vh", alignItems: "center", justifyContent: "center", display: "flex" }}>
-      <div style={{ position: "absolute", top: 20, right: 20 }}>
-  <button className="button-primary" onClick={handleLogout}>
-    Logout
-  </button>
-</div>
+      {/* ...rest of your current code... */}
+  
+      
 
       {locationError ? (
         <div className="glass-card" style={{
@@ -275,28 +296,58 @@ function WorkerDashboard() {
         </div>
       ) : (
         <div className="glass-card">
-          <h2>Welcome, {displayName || "Worker"}!</h2>
+          {/* Role & Track Info + Progress */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginBottom: 16 }}>
+            <ProgressRing percent={percent} />
+            <div>
+              <div style={{ fontWeight: "bold", fontSize: 18, letterSpacing: 1 }}>{role?.toUpperCase()}</div>
+              <div style={{ color: "#48ff99", fontSize: 16, marginTop: 2 }}>{assignedTrack}</div>
+            </div>
+          </div>
+
+          <h2 style={{ marginTop: 4, marginBottom: 12 }}>Welcome, {displayName || "Worker"}!</h2>
           <h3>Today's Tasks</h3>
           {tasks.length === 0 ? (
-            <p>No tasks found for your track/role.</p>
-          ) : (
-            <ul>
-              {tasks.map((task) => (
-                <li key={task.id || task.name} style={{ margin: "16px 0", fontSize: 18 }}>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={completedTaskNames.includes(task.name)}
-                      disabled={completedTaskNames.includes(task.name)}
-                      onChange={() => handleTaskCheck(task.name)}
-                    />
-                    {" "}
-                    {task.name}
-                  </label>
-                </li>
-              ))}
-            </ul>
-          )}
+  <p>No tasks found for your track/role.</p>
+) : (
+  <ul>
+    {tasks
+      .filter((task) => !completedTaskNames.includes(task.name)) // Hides completed
+      .map((task) => (
+        <li key={task.id || task.name} style={{ margin: "16px 0", fontSize: 18 }}>
+          <label>
+            <input
+              type="checkbox"
+              checked={false}
+              onChange={() => handleTaskCheck(task.name)}
+            />
+            {" "}
+            {task.name}
+          </label>
+        </li>
+      ))}
+  </ul>
+)}
+{tasks.filter((task) => !completedTaskNames.includes(task.name)).length === 0 && (
+  <p style={{ color: "#24ff98", marginTop: 10, fontWeight: 500 }}>All tasks complete!</p>
+)}
+
+  {/* Task History (Today) */}
+<div style={{ marginTop: 30 }}>
+  <h4 style={{ margin: 0, color: "#aaa" }}>Today’s Completed Tasks</h4>
+  {completedTaskNames.length === 0 ? (
+    <p style={{ color: "#bbb" }}>No tasks completed yet.</p>
+  ) : (
+    <ul style={{ margin: "10px 0 0 0", padding: 0, listStyle: "none" }}>
+      {completedTaskNames.map((task, idx) => (
+        <li key={idx} style={{ color: "#48ff99", marginBottom: 4 }}>
+          {task}
+        </li>
+      ))}
+    </ul>
+  )}
+</div>
+
 
           {/* Clock In/Out Section */}
           <div style={{ marginTop: 30, textAlign: 'center' }}>
@@ -328,9 +379,22 @@ function WorkerDashboard() {
               {clockStatusMsg || (clockedIn ? "You are clocked in" : "You are not clocked in")}
             </div>
           </div>
+
+          {/* View Task History Button */}
+          <div style={{ marginTop: 24, textAlign: "center" }}>
+            <button
+              className="button-primary"
+              onClick={() => navigate('/task-history')}
+              style={{ width: 180, fontSize: 15, borderRadius: 10 }}
+            >
+              View Task History
+            </button>
+          </div>
         </div>
       )}
     </div>
+      
+  </>
   );
 }
 

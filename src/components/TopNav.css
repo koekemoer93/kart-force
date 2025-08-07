@@ -42,13 +42,15 @@
   color: black;
 }
 
-.logout-button {
-  background: #ff4f4f;
+.logout-btn {
+  background-color: #ff4d4d;
   color: white;
   border: none;
-  padding: 6px 12px;
-  border-radius: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
   cursor: pointer;
   font-weight: bold;
-  font-size: 0.9rem;
+}
+.logout-btn:hover {
+  background-color: #e60000;
 }
