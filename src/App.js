@@ -7,6 +7,9 @@ import { AuthProvider, useAuth } from './AuthContext';
 import LoginPage from './LoginPage';
 import TrackDetailsPage from './TrackDetailsPage'; // ✅ ADDED
 import TaskHistoryPage from './TaskHistoryPage';
+import LeaveRequestPage from './LeaveRequestPage'; // at the top with other imports
+import AdminLeavePanel from './AdminLeavePanel';
+
 
 
 function ProtectedRoute({ children, roleRequired }) {
@@ -25,10 +28,9 @@ function App() {
         <Routes>
           <Route path="/" element={<LoginPage />} />
           <Route path="/task-history" element={<TaskHistoryPage />} />
-
-          
-          <Route path="/admin-dashboard"element={
-              <ProtectedRoute roleRequired="admin">
+          <Route path="/request-leave" element={<LeaveRequestPage />} />
+          <Route path="/admin-leave" element={<AdminLeavePanel />} />
+          <Route path="/admin-dashboard"element={<ProtectedRoute roleRequired="admin">
                 <AdminDashboard />
               </ProtectedRoute>
             }

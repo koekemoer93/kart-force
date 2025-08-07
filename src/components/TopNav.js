@@ -28,7 +28,7 @@ const TopNav = ({ role }) => {
   // Buttons for worker
   const workerButtons = [
     { label: 'Dashboard', path: '/worker-dashboard' },
-    { label: 'Apply for Leave', path: '/apply-leave' },
+    { label: 'Apply for Leave', path: '/request-leave' },
   ];
 
   return (

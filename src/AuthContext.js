@@ -9,23 +9,26 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [role, setRole] = useState(null);
   const [displayName, setDisplayName] = useState("");
+  const [userData, setUserData] = useState(null); // ✅ New
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
       if (firebaseUser) {
         setUser(firebaseUser);
-        // Get user profile
+
         const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
         if (userDoc.exists()) {
           const data = userDoc.data();
           setRole(data.role);
           setDisplayName(data.displayName);
+          setUserData(data); // ✅ Save full userData
         }
       } else {
         setUser(null);
         setRole(null);
         setDisplayName("");
+        setUserData(null); // ✅ Reset
       }
       setLoading(false);
     });
@@ -33,7 +36,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, role, displayName, loading }}>
+    <AuthContext.Provider value={{ user, role, displayName, userData, loading }}>
       {children}
     </AuthContext.Provider>
   );

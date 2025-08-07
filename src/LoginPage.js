@@ -16,9 +16,9 @@ function LoginPage() {
   const { user, role } = useAuth();
 
   useEffect(() => {
-    if (user && role === "admin") navigate("/admin-dashboard");
-    if (user && role === "worker") navigate("/worker-dashboard");
-  }, [user, role, navigate]);
+  // No auto-redirect on page load anymore
+}, []);
+
 
   const handleLogin = async (e) => {
   e.preventDefault();
