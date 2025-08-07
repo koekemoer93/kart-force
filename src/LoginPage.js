@@ -1,10 +1,11 @@
 // src/LoginPage.js
 import React, { useState, useEffect } from 'react';
-import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from './firebase';
 import { doc, getDoc } from "firebase/firestore";
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
+import { signInWithEmailAndPassword, setPersistence, browserSessionPersistence, browserLocalPersistence, inMemoryPersistence } from "firebase/auth";
+
 
 function LoginPage() {
   const [email, setEmail] = useState('');
@@ -20,11 +21,13 @@ function LoginPage() {
   }, [user, role, navigate]);
 
   const handleLogin = async (e) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
+  e.preventDefault();
+  setError('');
+  setLoading(true);
 
-    try {
+  try {
+      await setPersistence(auth, inMemoryPersistence);
+
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const uid = userCredential.user.uid;
 
