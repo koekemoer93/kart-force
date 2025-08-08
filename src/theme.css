@@ -1,161 +1,41 @@
-/* src/theme.css */
+/* ===========================
+   Kart Force / Track Tycoon Theme
+   Cleaned & merged (no duplicate/conflicting rules)
+   =========================== */
+
+/* ---------- Globals & tokens ---------- */
 :root {
-  --nav-h: 56px; /* change once, whole app updates */
+  --nav-h: 56px;             /* global nav height */
+  --bg: #0f0f10;             /* Firebase-like dark */
+  --panel: #17181a;
+  --panel-2: #1d1f22;
+  --text: #f5f5f7;
+  --muted: #a1a1aa;
+  --accent: #5eead4;
+  --border: #2a2d31;
+  --btn: #26292d;
+
+  /* layout scales */
+  --page-max: 1200px;
+  --gap-lg: 32px;
+  --gap-md: 24px;
+  --gap-sm: 16px;
 }
 
-/* Ensure the top nav has a predictable height */
+html, body, #root {
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, sans-serif;
+  margin: 0;
+  min-height: 100%;
+}
+
+/* Prevent giant images from breaking layout */
+img { max-width: 100%; height: auto; }
+
+/* ---------- Top Nav ---------- */
 .top-nav {
   height: var(--nav-h);
-}
-
-/* Make every page section snap to the remaining viewport height */
-.main-wrapper {
-  min-height: calc(100vh - var(--nav-h));
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  width: min(1200px, 100%);
-  padding: clamp(12px, 2vw, 32px);
-  margin: 0 auto; /* center content on wide screens */
-}
-
-/* Cards stretch nicely but never overflow the screen */
-.glass-card {
-  width: 100%;
-  max-width: 100%;
-}
-
-/* Any images (like avatars) won’t blow up the layout */
-img {
-  max-width: 100%;
-  height: auto;
-}
-
-body {
-  margin: 0;
-  font-family: 'Inter',sans-serif !important;
-  background: #111;
-  color: #fff;
-  min-height: 100vh;
-   
-
-}
-.main-wrapper {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(120deg, #1a1a1a 0%, #232526 100%);
-  
-}
-.glass-card {
-  background: rgba(20, 20, 20, 0.75);
-  border-radius: 24px;
-  box-shadow: 0 4px 32px 0 rgba(0,0,0,0.22);
-  padding: 48px 40px;               /* More padding for bigger feel */
-  max-width: 700px;                 /* Make it much wider */
-  min-height: 420px;                /* Taller by default */
-  width: 100%;
-  margin: 24px auto;                /* More margin for desktop */
-  backdrop-filter: blur(16px);      /* Slightly more blur */
-  border: 1px solid rgba(255,255,255,0.08);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-
-.card-inner {
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 16px;
-  padding: 16px;
-  margin-bottom: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.input-field {
-  width: 100%;
-  padding: 12px 14px;
-  margin-bottom: 18px;   /* Adds space below each input */
-  border-radius: 8px;
-  border: 1px solid #222;
-  background: rgba(255,255,255,0.06);
-  color: #fff;
-  font-size: 1rem;
-  outline: none;
-  transition: border 0.2s;
-  box-sizing: border-box;
-}
-.input-field:focus {
-  border: 1.5px solid #48ff99;
-}
-
-.button-primary {
-  width: 100%;
-  padding: 13px 0;
-  background: linear-gradient(90deg, #48ff99 20%, #43a1f7 100%);
-  color: #111;
-  border: none;
-  border-radius: 8px;
-  font-weight: bold;
-  font-size: 1.08rem;
-  margin-top: 10px;       /* Adds space above the button */
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s;
-}
-.button-primary:hover {
-  background: linear-gradient(90deg, #43a1f7 20%, #48ff99 100%);
-  color: #000;
-}
-
-.admin-dashboard-layout {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 32px;
-  align-items: start;
-  padding: 40px;
-  flex-wrap: wrap;
-}
-
-.welcome-card {
-  grid-column: 1 / 2;
-}
-
-.team-overview-card {
-  grid-column: 2 / 3;
-}
-
-.progress-summary-card {
-  grid-column: 3 / 4;
-}
-
-/* For mobile responsiveness */
-@media (max-width: 900px) {
-  .admin-dashboard-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .welcome-card,
-  .team-overview-card,
-  .progress-summary-card {
-    grid-column: 1 / -1;
-  }
-}
-
-.logout-btn {
-  background-color: #ff4d4d;
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-weight: bold;
-}
-
-.logout-btn:hover {
-  background-color: #e60000;
-}
-
-.top-nav {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -165,16 +45,9 @@ body {
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.nav-left {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-}
+.nav-left { display: flex; align-items: center; gap: 20px; }
 
-.nav-buttons {
-  display: flex;
-  gap: 10px;
-}
+.nav-buttons { display: flex; gap: 10px; }
 
 .nav-btn {
   background-color: #222;
@@ -185,39 +58,158 @@ body {
   cursor: pointer;
   font-size: 0.9rem;
 }
+.nav-btn:hover { background-color: #333; }
 
-.nav-btn:hover {
-  background-color: #333;
+.topnav-right { display: flex; align-items: center; gap: 12px; }
+
+/* ---------- Page wrapper ---------- */
+.main-wrapper {
+  /* Viewport aware height minus nav */
+  min-height: calc(100vh - var(--nav-h));
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-md);
+  width: min(var(--page-max), 100%);
+  padding: clamp(12px, 2vw, 32px);
+  margin: 0 auto; /* center content on wide screens */
+
+  /* nice subtle background on content pages */
+  background: linear-gradient(120deg, #1a1a1a 0%, #232526 100%);
 }
 
-@media (max-width: 800px) {
-  .glass-card {
-    max-width: 98vw;
-    padding: 18px 6vw;
-    min-height: unset;
+/* ---------- Universal glass card ---------- */
+.glass-card {
+  width: 100%;
+  max-width: 100%;
+  background: rgba(20, 20, 20, 0.75);
+  border-radius: 24px;
+  box-shadow: 0 4px 32px 0 rgba(0,0,0,0.22);
+  padding: 48px 40px;               /* generous default padding */
+  min-height: 420px;                /* taller default for hero-like cards */
+  margin: 24px auto;
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.08);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* Lighter inner sections used in lists/panels */
+.card-inner {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Inputs & buttons (keep your look) */
+.input-field {
+  width: 100%;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+  border-radius: 8px;
+  border: 1px solid #222;
+  background: rgba(255,255,255,0.06);
+  color: #fff;
+  font-size: 1rem;
+  outline: none;
+  transition: border 0.2s;
+  box-sizing: border-box;
+}
+.input-field:focus { border: 1.5px solid #48ff99; }
+
+.button-primary {
+  width: 100%;
+  padding: 13px 0;
+  background: linear-gradient(90deg, #48ff99 20%, #43a1f7 100%);
+  color: #111;
+  border: none;
+  border-radius: 8px;
+  font-weight: bold;
+  font-size: 1.08rem;
+  margin-top: 10px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.button-primary:hover {
+  background: linear-gradient(90deg, #43a1f7 20%, #48ff99 100%);
+  color: #000;
+}
+
+.button-primary, .button-secondary, .logout-btn {
+  border-radius: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  background: var(--btn);
+  color: var(--text);
+}
+
+/* Logout variant */
+.logout-btn {
+  background-color: #ff4d4d;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+}
+.logout-btn:hover { background-color: #e60000; }
+
+/* ---------- Admin Dashboard Layout ---------- */
+/* Three columns on very wide screens, two on desktop, one on mobile */
+.admin-dashboard-layout {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--gap-md);
+  align-items: start;
+  padding: 20px 24px;
+  max-width: var(--page-max);
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* Make dashboard cards more compact than hero glass-card defaults */
+.admin-dashboard-layout .glass-card {
+  padding: 18px 20px;
+  min-height: auto;
+  margin: 0;                 /* cards use the grid gap for spacing */
+  justify-content: flex-start;
+}
+
+/* Keep your named areas */
+.welcome-card   { grid-column: 1 / 2; }
+.team-overview-card { grid-column: 2 / 3; }
+.progress-summary-card { grid-column: 1 / -1; } /* can span wide if you add it */
+
+/* Very wide = 3 columns */
+@media (min-width: 1400px) {
+  .admin-dashboard-layout {
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--gap-lg);
+    padding: 40px;
+  }
+  .welcome-card { grid-column: 1 / 2; }
+  .team-overview-card { grid-column: 2 / 3; }
+  .progress-summary-card { grid-column: 3 / 4; }
+}
+
+/* Tablet/mobile stacks */
+@media (max-width: 1024px) {
+  .admin-dashboard-layout {
+    grid-template-columns: 1fr;
+    gap: var(--gap-sm);
+    padding: 16px;
+  }
+  .welcome-card,
+  .team-overview-card,
+  .progress-summary-card {
+    grid-column: 1 / -1;
   }
 }
 
-/* --- Firebase-like dark theme additions (non-glass) --- */
-:root {
-  --bg: #0f0f10;
-  --panel: #17181a;
-  --panel-2: #1d1f22;
-  --text: #f5f5f7;
-  --muted: #a1a1aa;
-  --accent: #5eead4;
-  --border: #2a2d31;
-  --btn: #26292d;
-}
-
-html, body, #root {
-  background: var(--bg);
-  color: var(--text);
-  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, sans-serif;
-}
-
-.main-wrapper { padding: 16px; max-width: 1200px; margin: 0 auto; }
-
+/* ---------- Utility cards & grids ---------- */
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -235,14 +227,6 @@ html, body, #root {
 .title { margin: 0; }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
-
-.button-primary, .button-secondary, .logout-btn {
-  border-radius: 10px;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  background: var(--btn);
-  color: var(--text);
-}
 
 .avatar-xl {
   width: 56px; height: 56px; border-radius: 50%;
@@ -262,29 +246,33 @@ html, body, #root {
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .dot-open { background: #22c55e; box-shadow: 0 0 10px rgba(34,197,94,.6); }
 .dot-closed { background: #ef4444; box-shadow: 0 0 10px rgba(239,68,68,.6); }
-
 .track-name { margin: 0; }
-
 .link-reset { text-decoration: none; color: inherit; }
 
-/* === Track progress bar === */
+/* ---------- Track progress bar ---------- */
 .track-progress {
   height: 8px;
-  background: var(--panel-2, #1d1f22);
-  border: 1px solid var(--border, #2a2d31);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
   border-radius: 999px;
   overflow: hidden;
   margin-top: 6px;
 }
-
 .track-progress__fill {
   height: 100%;
   width: 0%;
   background: linear-gradient(90deg, #22c55e, #10b981);
   transition: width 300ms ease;
 }
-
-/* optional: dim bar when 0% */
 .track-progress--empty .track-progress__fill {
   background: linear-gradient(90deg, #334155, #1f2937);
+}
+
+/* ---------- Responsive tweaks for glass-card on phone ---------- */
+@media (max-width: 800px) {
+  .glass-card {
+    max-width: 98vw;
+    padding: 18px 6vw;
+    min-height: unset;
+  }
 }

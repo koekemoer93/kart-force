@@ -24,3 +24,40 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/* === Staff Duty Badge Responsive Scaling === */
+.duty-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 20px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 0 6px rgba(0, 255, 153, 0.25);
+  color: #EAEAEA;
+}
+
+/* Smaller screens — slightly shrink badge */
+@media (max-width: 600px) {
+  .duty-badge {
+    width: 16px;
+    height: 16px;
+    font-size: 10px;
+    line-height: 16px;
+  }
+}
+
+/* Very small screens — shrink even more */
+@media (max-width: 400px) {
+  .duty-badge {
+    width: 14px;
+    height: 14px;
+    font-size: 9px;
+    line-height: 14px;
+  }
+}

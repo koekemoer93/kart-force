@@ -4,9 +4,11 @@ import { useNavigate } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase';
 import './TopNav.css';
+import AvatarUploader from './AvatarUploader';
 
 const TopNav = ({ role }) => {
   const navigate = useNavigate();
+  const safeRole = role || 'worker'; // fallback if role missing
 
   const handleLogout = async () => {
     try {
@@ -17,56 +19,49 @@ const TopNav = ({ role }) => {
     }
   };
 
-  // Buttons for admin
-  const trackButtons = [
+  // Clean, minimal buttons for admin
+  // ✅ Added "Seed Hours" (admin-only) that links to /admin/seed-hours
+  const adminButtons = [
     { label: 'Dashboard', path: '/admin-dashboard' },
-    { label: 'SyringaPark', path: '/track/syringa' },
-    { label: 'Epic Karting Pavilion', path: '/track/pavilion' },
-    { label: 'Midlands', path: '/track/midlands' },
-    { label: 'Clearwater', path: '/track/clearwater' },
-    { label: 'Indykart Parkview', path: '/track/parkview' },
     { label: 'Leave Requests', path: '/admin-leave' },
+    { label: 'Stock Room', path: '/stockroom' },
+    { label: 'Hours', path: '/hours' },
+    { label: 'Seed Hours', path: '/admin/seed-hours' }, // <-- NEW
   ];
 
-  // Buttons for worker
+  // Clean, minimal buttons for worker
   const workerButtons = [
     { label: 'Dashboard', path: '/worker-dashboard' },
     { label: 'Apply for Leave', path: '/request-leave' },
+    { label: 'Request Supplies', path: '/request-supplies' },
   ];
+
+  const buttonsToShow = safeRole === 'admin' ? adminButtons : workerButtons;
 
   return (
     <div className="top-nav">
       <div className="nav-left">
-        <h1 className="logo-text">Kart</h1>
-
         <div className="nav-buttons">
-          {/* Admin Buttons */}
-          {role === 'admin' &&
-            trackButtons.map((button, idx) => (
-              <button
-                key={idx}
-                className="nav-btn"
-                onClick={() => navigate(button.path)}
-              >
-                {button.label}
-              </button>
-            ))}
-
-          {role === 'worker' &&
-            workerButtons.map((button, idx) => (
-              <button
-                key={`worker2-${idx}`}
-                className="nav-btn"
-                onClick={() => navigate(button.path)}
-              >
-                {button.label}
-              </button>
-            ))}
+          {buttonsToShow.map((btn) => (
+            <button
+              key={btn.path}
+              className="nav-btn"
+              onClick={() => navigate(btn.path)}
+            >
+              {btn.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Right-side buttons */}
-      <div className="nav-right" style={{ display: 'flex', gap: '10px' }}>
+      {/* Right side: profile + logout */}
+      <div className="nav-right" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <AvatarUploader
+          currentPhotoURL={auth.currentUser?.photoURL}
+          onUploaded={(url) => {
+            // optional: refresh UI or user context
+          }}
+        />
         <button className="logout-btn" onClick={handleLogout}>
           Logout
         </button>
