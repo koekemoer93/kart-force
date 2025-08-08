@@ -14,7 +14,7 @@ import GeofenceGate from './components/GeofenceGate';
 import StockRoom from './pages/StockRoom';
 import SupplyRequest from './pages/SupplyRequest';
 import SeedAllHours from "./pages/SeedAllHours";
-
+import AdminTaskCreator from './pages/AdminTaskCreator';
 
 
 
@@ -43,6 +43,7 @@ function App() {
   }
 />
           <Route path="/" element={<LoginPage />} />
+          <Route path="/task-creator" element={<AdminTaskCreator />} />
           <Route path="/admin/seed-hours" element={<SeedAllHours />} />
           <Route path="/stockroom" element={<StockRoom />} />
           <Route path="/request-supplies" element={<SupplyRequest />} />

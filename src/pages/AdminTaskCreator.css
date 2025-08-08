@@ -1,0 +1,9 @@
+.task-form-card {
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.task-form {
+  display: grid;
+  gap: 14px;
+}

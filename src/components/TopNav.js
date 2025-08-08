@@ -27,6 +27,8 @@ const TopNav = ({ role }) => {
     { label: 'Dashboard', path: '/admin-dashboard' },
     { label: 'Leave Requests', path: '/admin-leave' },
     { label: 'Stock Room', path: '/stockroom'},
+    { label: 'Create Task', path: '/task-creator' },
+
   ];
 
   const workerButtons = [
