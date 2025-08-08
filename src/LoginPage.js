@@ -5,6 +5,10 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { signInWithEmailAndPassword, setPersistence, inMemoryPersistence } from "firebase/auth";
 
+// --- Dev bypass flag (set in .env.development.local) ---
+const BYPASS =
+  String(process.env.REACT_APP_BYPASS_GEOFENCE || '').toLowerCase() === 'true';
+
 // --- Geofence settings ---
 const GEOFENCE_RADIUS_M = 300; // match WorkerDashboard threshold
 const GEO_OPTS = {
@@ -71,12 +75,19 @@ function LoginPage() {
       const userData = userDoc.data();
       const userRole = userData.role;
 
+      // Admins skip geofence
       if (userRole === "admin") {
         navigate("/admin-dashboard");
         return;
       }
 
       if (userRole === "worker") {
+        // 🔴 DEV BYPASS: if set, skip geofence and go straight in
+        if (BYPASS) {
+          navigate("/worker-dashboard");
+          return;
+        }
+
         const assignedTrack = userData.assignedTrack;
         const trackDoc = await getDoc(doc(db, "tracks", assignedTrack));
         if (!trackDoc.exists()) throw new Error("Track not found");

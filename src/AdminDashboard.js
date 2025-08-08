@@ -9,7 +9,21 @@ import { fetchTrackHoursRaw } from './services/tracks';
 import { normalizeWeeklyHours, isOpenNow } from './utils/hours';
 
 /**
- * Helpers: compute "open now" from hours
+ * NOTE: This file is a full drop-in replacement.
+ *
+ * ✅ What changed (as requested):
+ * 1) REMOVED the entire "Staff on Duty (Live)" column/card.
+ * 2) ADDED a tiny circular badge next to each track name showing the number of
+ *    clocked-in staff for that track (uses useStaffOnDuty live data).
+ * 3) UPDATED "Tracks — Status & Progress" to span full width (forces grid span).
+ * 4) PRESERVED hours logic (field /tracks/{id}.hours with fallback to /config/hours),
+ *    progress bars, and the dark glassy style.
+ *
+ * No external CSS refactor; minimal inline styling for the tiny badge and grid span.
+ */
+
+/**
+ * Helpers: compute "open now" from hours (legacy compatibility)
  * Supports BOTH:
  *  - openingHours (your SeedHours.js writes this)
  *  - tradingHours (legacy shape)
@@ -60,6 +74,8 @@ function TrackProgressBar({ percent }) {
   );
 }
 
+
+
 export default function AdminDashboard() {
   const { byTrack, loading: loadingDuty } = useStaffOnDuty();
   const trackIds = useMemo(() => Object.keys(TRACKS), []);
@@ -67,7 +83,7 @@ export default function AdminDashboard() {
   const [loadingTracks, setLoadingTracks] = useState(true);
 
   // Normalized hours loaded from /tracks/{id}.hours (FIELD) with fallback to /tracks/{id}/config/hours
-  const [trackHours, setTrackHours] = useState({}); // { [trackId]: normalizedArrayOrNull }
+  const [trackHours, setTrackHours] = useState({}); // { [trackIdOrFirestoreId]: normalizedArrayOrNull }
   const [hoursLoading, setHoursLoading] = useState(false);
   const [hoursError, setHoursError] = useState(null);
 
@@ -175,11 +191,18 @@ export default function AdminDashboard() {
     };
   }, []);
 
+  // Convenience: count staff for a given track using both the UI key and the Firestore id
+  const getDutyCount = (uiKey) => {
+    const firestoreKey = TRACKS[uiKey]?.id || uiKey;
+    const list = byTrack[firestoreKey] || byTrack[uiKey] || [];
+    return Array.isArray(list) ? list.length : 0;
+  };
+
   return (
     <>
       <TopNav role="admin" />
       <div className="main-wrapper admin-dashboard-layout">
-        {/* Welcome card (left) */}
+        {/* Welcome card (kept) */}
         <div className="glass-card welcome-card">
           <h2 style={{ marginTop: 0 }}>Welcome, Admin!</h2>
           <p className="muted" style={{ marginBottom: 0 }}>
@@ -187,67 +210,16 @@ export default function AdminDashboard() {
           </p>
         </div>
 
-        {/* Staff on Duty (right) */}
-        <div className="glass-card team-overview-card">
-          <h3 style={{ marginTop: 0 }}>Staff on Duty (Live)</h3>
-          {loadingDuty ? (
-            <p>Loading…</p>
-          ) : (
-            <>
-              {trackIds.map((key) => {
-                const list = byTrack[key] || [];
-                return (
-                  <div key={key} className="card-inner" style={{ marginBottom: 12 }}>
-                    <p style={{ fontWeight: 600, margin: 0 }}>
-                      {TRACKS[key]?.displayName || key} — {list.length} on duty
-                    </p>
-                    {list.length > 0 ? (
-                      <ul style={{ marginTop: 6, opacity: 0.9 }}>
-                        {list.map((u) => (
-                          <li key={u.id} style={{ marginLeft: 16, listStyle: 'disc' }}>
-                            {u.name || u.email || u.id}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p
-                        style={{
-                          fontSize: 13,
-                          color: '#aaa',
-                          marginLeft: 16,
-                          marginTop: 6,
-                        }}
-                      >
-                        No staff clocked in
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
+        {/* ================================================
+            REMOVED: Staff on Duty (Live) right column/card
+            ================================================ */}
 
-              {/* Unexpected tracks present in Firestore but not in TRACKS.js */}
-              {Object.keys(byTrack)
-                .filter((k) => !trackIds.includes(k))
-                .map((k) => (
-                  <div key={k} className="card-inner" style={{ marginBottom: 12 }}>
-                    <p style={{ fontWeight: 600, margin: 0 }}>
-                      {k} — {byTrack[k].length} on duty
-                    </p>
-                    <ul style={{ marginTop: 6, opacity: 0.9 }}>
-                      {byTrack[k].map((u) => (
-                        <li key={u.id} style={{ marginLeft: 16, listStyle: 'disc' }}>
-                          {u.name || u.email || u.id}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-            </>
-          )}
-        </div>
-
-        {/* Track status + progress (full width under) */}
-        <div className="glass-card progress-summary-card">
+        {/* Tracks — Status & Progress (FULL WIDTH) */}
+        <div
+          className="glass-card progress-summary-card"
+          // Force full-width span regardless of parent grid template
+          style={{ gridColumn: '1 / -1' }}
+        >
           <h3 style={{ marginTop: 0 }}>Tracks — Status & Progress</h3>
 
           {loadingTracks ? (
@@ -286,13 +258,29 @@ export default function AdminDashboard() {
                 const openClass = statusOpen ? 'dot-open' : 'dot-closed';
                 const percent = meta.completionPercent ?? 0;
 
+                // NEW: live clocked-in count (uses both keys to be safe)
+                const dutyCount = loadingDuty ? '…' : getDutyCount(id);
+
                 return (
                   <div key={id} className="track-card">
                     <div className="card track">
                       <div className="row between wrap gap12">
                         <div className="row gap12 center">
                           <span className={`dot ${openClass}`} />
-                          <h4 className="track-name">{t?.displayName || id}</h4>
+                          {/* Track name + tiny circular duty badge */}
+                          <div className="row gap8 center">
+                            <h4 className="track-name" style={{ margin: 0 }}>
+                              {t?.displayName || id}
+                            </h4>
+                            <span
+                              className="duty-badge"
+                              title="Clocked-in staff"
+                              aria-label="Clocked-in staff"
+                      
+                            >
+                              {dutyCount}
+                            </span>
+                          </div>
                         </div>
                         <span className="small muted">{statusNote}</span>
                       </div>

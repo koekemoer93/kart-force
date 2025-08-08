@@ -4,7 +4,7 @@
 const TRACKS = {
   "Epic Karting Syringa Park": {
     id: "SyringaPark", // exact Firestore ID
-    displayName: "Epic Karting Syringa Park",
+    displayName: "Syringa Park",
     lat: 0,  // TODO: real latitude
     lng: 0,  // TODO: real longitude
     radiusMeters: 250,
@@ -12,7 +12,7 @@ const TRACKS = {
 
   "Epic Karting Pavilion": {
     id: "epic-karting-pavilion",
-    displayName: "Epic Karting Pavilion",
+    displayName: "Pavilion",
     lat: 0,
     lng: 0,
     radiusMeters: 250,
@@ -20,55 +20,55 @@ const TRACKS = {
 
   "Epic Karting Midlands": {
     id: "epic-karting-midlands",
-    displayName: "Epic Karting Midlands",
+    displayName: "Midlands",
     lat: 0,
     lng: 0,
     radiusMeters: 250,
   },
 
-  "IndyKart Gateway": {
+  "Indykart Gateway": {
     id: "indykart-gateway",
-    displayName: "IndyKart Gateway",
+    displayName: "Gateway",
     lat: 0,
     lng: 0,
     radiusMeters: 250,
   },
 
-  "IndyKart Eastgate": {
+  "Indykart Eastgate": {
     id: "indykart-eastgate",
-    displayName: "IndyKart Eastgate",
+    displayName: "Eastgate",
     lat: 0,
     lng: 0,
     radiusMeters: 250,
   },
 
-  "IndyKart Parkview": {
+  "Indykart Parkview": {
     id: "indykart-parkview",
-    displayName: "IndyKart Parkview",
+    displayName: "Parkview",
     lat: 0,
     lng: 0,
     radiusMeters: 250,
   },
 
-  "IndyKart Mall of the South": {
+  "Indykart Mall of the South": {
     id: "indykart-mall-of-the-south",
-    displayName: "IndyKart Mall of the South",
+    displayName: "Mall of the South",
     lat: 0,
     lng: 0,
     radiusMeters: 250,
   },
 
-  "IndyKart Clearwater": {
+  "Indykart Clearwater": {
     id: "indykart-clearwater",
-    displayName: "IndyKart Clearwater",
+    displayName: "Clearwater",
     lat: 0,
     lng: 0,
     radiusMeters: 250,
   },
 
-  "RBEK Rosebank Electric Karting": {
+  "RBEK": {
     id: "rbek",
-    displayName: "RBEK Rosebank Electric Karting",
+    displayName: "RBEK",
     lat: 0,
     lng: 0,
     radiusMeters: 250,
