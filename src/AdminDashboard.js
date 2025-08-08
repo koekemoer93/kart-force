@@ -1,361 +1,242 @@
 // src/AdminDashboard.js
-import React, { useEffect, useState, useMemo } from 'react';
-import { auth, db } from './firebase';
-import { useNavigate } from 'react-router-dom';
-import {
-  collection,
-  getDocs,
-  doc,
-  getDoc,
-  query,
-  where,
-  Timestamp,
-  onSnapshot
-} from 'firebase/firestore';
+import React, { useEffect, useMemo, useState } from 'react';
 import TopNav from './components/TopNav';
+import { useStaffOnDuty } from './hooks/useStaffOnDuty';
+import TRACKS from './constants/tracks';
+import { db } from './firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
-function AdminDashboard({ displayName, role }) {
-  const navigate = useNavigate();
+// ---- Helpers: compute "open now" from trading hours ----
+// Expected structure in Firestore (tracks/{trackId}):
+// {
+//   isOpen?: boolean,                         // optional: immediate override
+//   completionPercent?: number,               // optional: for progress bars
+//   progress?: { completionPercent?: number}, // optional legacy shape
+//   tradingHours?: {
+//     mon: { open: "09:00", close: "21:00", closed?: boolean },
+//     tue: { ... }, wed: { ... }, thu: { ... }, fri: { ... }, sat: { ... }, sun: { ... }
+//   }
+// }
+function computeIsOpenFromHours(tradingHours, now = new Date()) {
+  if (!tradingHours) return { isOpen: false, note: 'No hours set' };
 
-  const [users, setUsers] = useState([]);
-  const [trackProgress, setTrackProgress] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [pendingLeaveCount, setPendingLeaveCount] = useState(0);
-  const [trackStatuses, setTrackStatuses] = useState({});
+  const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+  const dKey = days[now.getDay()];
+  const day = tradingHours[dKey];
+  if (!day || day.closed) return { isOpen: false, note: 'Closed today' };
 
-  // Group only clocked-in users by track
-  const clockedInByTrack = useMemo(() => {
-    const grouped = {};
-    users
-      .filter(u => u.isClockedIn)
-      .forEach(u => {
-        const key = u.assignedTrack || 'Unassigned';
-        if (!grouped[key]) grouped[key] = [];
-        grouped[key].push(u);
-      });
-    return grouped;
-  }, [users]);
-
-  const handleLogout = async () => {
-    await auth.signOut();
-    navigate('/');
+  const parseHM = (s) => {
+    if (!s || !s.includes(':')) return null;
+    const [h, m] = s.split(':').map(Number);
+    return { h, m };
   };
 
-  const toMinutes = (hhmm) => {
-    const [h, m] = hhmm.split(':').map(Number);
-    return h * 60 + m;
-  };
+  const o = parseHM(day.open);
+  const c = parseHM(day.close);
+  if (!o || !c) return { isOpen: false, note: 'Invalid hours' };
 
-  const isOpenNow = (openingHours) => {
-    const dayKeys = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-    const now = new Date();
-    const key = dayKeys[now.getDay()];
-    const today = openingHours?.[key];
+  const toMinutes = (h, m) => h * 60 + m;
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  const openMins = toMinutes(o.h, o.m);
+  const closeMins = toMinutes(c.h, c.m);
 
-    if (!today || today.closed) return false;
+  const isOpen = nowMins >= openMins && nowMins < closeMins;
+  const note = isOpen ? `Open until ${day.close}` : `Opens ${day.open}`;
+  return { isOpen, note };
+}
 
-    const minutesNow = now.getHours() * 60 + now.getMinutes();
-    const openMins = toMinutes(today.open);
-    const closeMins = toMinutes(today.close);
+function formatPercent(n) {
+  const v = Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 0;
+  return v;
+}
 
-    return minutesNow >= openMins && minutesNow < closeMins;
-  };
+function TrackProgressBar({ percent }) {
+  const v = formatPercent(percent);
+  const empty = v <= 0;
+  return (
+    <div className={`track-progress ${empty ? 'track-progress--empty' : ''}`}>
+      <div
+        className="track-progress__fill"
+        style={{ width: `${v}%` }}
+      />
+    </div>
+  );
+}
 
+export default function AdminDashboard() {
+  const { byTrack, loading: loadingDuty } = useStaffOnDuty();
+  const trackIds = useMemo(() => Object.keys(TRACKS), []);
+  const [trackDocs, setTrackDocs] = useState({}); // { [trackId]: { isOpen, note, completionPercent } }
+  const [loadingTracks, setLoadingTracks] = useState(true);
+
+  // Fetch each track doc once (keeps your Firestore schema flexible)
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'tracks'), (snap) => {
-      const next = {};
-      snap.forEach((docSnap) => {
-        const data = docSnap.data();
-        const name = data.name || docSnap.id;
-        next[name] = { openNow: isOpenNow(data.openingHours || {}) };
-      });
-      setTrackStatuses(next);
-    });
-    return () => unsub();
-  }, []);
+    let cancelled = false;
+    (async () => {
+      try {
+        const results = {};
+        for (const id of trackIds) {
+          try {
+            const snap = await getDoc(doc(db, 'tracks', id));
+            if (!snap.exists()) {
+              results[id] = {
+                isOpen: false,
+                note: 'No track doc',
+                completionPercent: 0,
+              };
+              continue;
+            }
+            const data = snap.data() || {};
 
-  useEffect(() => {
-    const q = query(
-      collection(db, 'leaveRequests'),
-      where('status', '==', 'pending')
-    );
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setPendingLeaveCount(snapshot.size);
-    });
-    return () => unsubscribe();
-  }, []);
+            // Determine open/closed with sensible priority:
+            // 1) explicit isOpen boolean (if you set it via a toggle)
+            // 2) compute from tradingHours
+            // 3) default false
+            let isOpen = false;
+            let note = '';
+            if (typeof data.isOpen === 'boolean') {
+              isOpen = data.isOpen;
+              note = isOpen ? 'Open now' : 'Closed now';
+            } else {
+              const res = computeIsOpenFromHours(data.tradingHours);
+              isOpen = res.isOpen;
+              note = res.note;
+            }
 
-  useEffect(() => {
-    async function fetchData() {
-      const userSnapshot = await getDocs(collection(db, 'users'));
-      const usersData = [];
+            // Read progress percent (multiple shapes supported)
+            const p =
+              (data.progress && typeof data.progress.completionPercent === 'number'
+                ? data.progress.completionPercent
+                : data.completionPercent) ?? 0;
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const startOfDay = Timestamp.fromDate(today);
-
-      const trackStats = {};
-
-      for (const docSnap of userSnapshot.docs) {
-        const userData = docSnap.data();
-        const userId = docSnap.id;
-
-        const assignedTrack = userData.assignedTrack || 'N/A';
-        const role = userData.role || 'worker';
-        const name = userData.name || 'Unnamed';
-
-        const clockQuery = query(
-          collection(db, 'users', userId, 'clockLogs'),
-          where('timestamp', '>=', startOfDay)
-        );
-        const clockLogs = await getDocs(clockQuery);
-
-        let lastLog = null;
-        clockLogs.forEach((log) => {
-          const data = log.data();
-          if (!lastLog || data.timestamp.seconds > lastLog.timestamp.seconds) {
-            lastLog = data;
-          }
-        });
-
-        const isClockedIn = !!lastLog && lastLog.type === 'in';
-
-        const completedQuery = query(
-          collection(db, 'users', userId, 'completedTasks'),
-          where('completedAt', '>=', startOfDay)
-        );
-        const completedSnapshot = await getDocs(completedQuery);
-        const completedCount = completedSnapshot.size;
-
-        let totalTasks = 0;
-        if (assignedTrack !== 'N/A') {
-          const templateDoc = await getDoc(
-            doc(db, 'tracks', assignedTrack, 'templates', role)
-          );
-          if (templateDoc.exists()) {
-            totalTasks = (templateDoc.data().tasks || []).length;
+            results[id] = {
+              isOpen,
+              note,
+              completionPercent: formatPercent(p),
+            };
+          } catch {
+            results[id] = {
+              isOpen: false,
+              note: 'Error loading',
+              completionPercent: 0,
+            };
           }
         }
-
-        const percentDone =
-          totalTasks > 0 ? Math.round((completedCount / totalTasks) * 100) : 0;
-
-        usersData.push({
-          id: userId,
-          name,
-          role,
-          assignedTrack,
-          isClockedIn,
-          completedCount,
-          totalTasks,
-          percentDone,
-        });
-
-        if (!trackStats[assignedTrack]) {
-          trackStats[assignedTrack] = { total: 0, completed: 0 };
+        if (!cancelled) {
+          setTrackDocs(results);
+          setLoadingTracks(false);
         }
-        trackStats[assignedTrack].total += totalTasks;
-        trackStats[assignedTrack].completed += completedCount;
+      } catch {
+        if (!cancelled) setLoadingTracks(false);
       }
-
-      setUsers(usersData);
-      setTrackProgress(trackStats);
-      setLoading(false);
-    }
-
-    fetchData();
-  }, []);
-
-  if (loading) {
-    return (
-      <>
-        <TopNav role="admin" onLogout={handleLogout} />
-        <div className="main-wrapper">
-          <div className="glass-card">
-            <p>Loading live worker data...</p>
-          </div>
-        </div>
-      </>
-    );
-  }
+    })();
+    return () => { cancelled = true; };
+  }, [trackIds]);
 
   return (
     <>
       <TopNav role="admin" />
-      <div className="main-wrapper" style={{ flexDirection: 'column', gap: 24 }}>
-        
-        {/* New Button to Seed Hours */}
-        {role === 'admin' && (
-          <button
-            className="button-primary"
-            style={{ marginBottom: 20 }}
-            onClick={() => navigate('/seed-hours')}
-          >
-            Seed SyringaPark Hours
-          </button>
-        )}
-
-        {/* Compact welcome card */}
-        <div
-          className="glass-card welcome-card"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 20,
-            marginBottom: 20,
-            gap: 16,
-            textAlign: 'center',
-          }}
-        >
-          <img
-            src="/profile-placeholder.jpg"
-            alt="Profile"
-            style={{
-              width: 60,
-              height: 60,
-              borderRadius: '50%',
-              objectFit: 'cover',
-              border: '2px solid white',
-            }}
-          />
-          <div>
-            <h2 style={{ margin: 0 }}>Welcome, {displayName || 'Admin'}!</h2>
-            <p style={{ margin: 0, fontSize: 14 }}>
-              This is your live owner dashboard.
-            </p>
-          </div>
-        </div>
-
-        {/* Combined: Pending Leave + Tracks Overview */}
-<div
-  className="glass-card"
-  style={{ display: 'flex', flexDirection: 'column', gap: 24 }}
->
-  <div>
-    <h3 style={{ marginTop: 0 }}>Pending Leave Requests</h3>
-    <p
-      style={{
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: pendingLeaveCount > 0 ? 'tomato' : 'lightgreen',
-        margin: 0,
-      }}
-    >
-      {pendingLeaveCount}
-    </p>
-  </div>
-
-  <div>
-    <h3 style={{ marginTop: 0 }}>Tracks Overview</h3>
-    {Object.entries(trackProgress).map(([trackName, data], index) => {
-      const pct =
-        data.total > 0 ? Math.round((data.completed / data.total) * 100) : 0;
-
-      // 🔔 Live open/closed (computed from Firestore tracks collection)
-      const openNow = trackStatuses?.[trackName]?.openNow === true;
-
-      return (
-        <div
-          key={index}
-          style={{
-            marginBottom: 12,
-            paddingBottom: 12,
-            borderBottom: '1px solid rgba(255,255,255,0.08)',
-          }}
-        >
-          <p style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <strong>{trackName}</strong>
-            <span
-              style={{
-                fontSize: 12,
-                padding: '2px 8px',
-                borderRadius: 999,
-                background: openNow ? 'rgba(72,255,153,0.15)' : 'rgba(255,99,71,0.15)',
-                color: openNow ? '#48ff99' : 'tomato',
-                border: `1px solid ${
-                  openNow ? 'rgba(72,255,153,0.5)' : 'rgba(255,99,71,0.5)'
-                }`,
-              }}
-            >
-              {openNow ? 'OPEN' : 'CLOSED'}
-            </span>
+      <div className="main-wrapper admin-dashboard-layout">
+        {/* Welcome card (left) */}
+        <div className="glass-card welcome-card">
+          <h2 style={{ marginTop: 0 }}>Welcome, Admin!</h2>
+          <p className="muted" style={{ marginBottom: 0 }}>
+            This is your live owner dashboard.
           </p>
-
-         <p style={{ margin: '6px 0 0' }}>
-  Completed Tasks: {data.completed}/{data.total}
-</p>
-<p style={{ margin: '2px 0 6px 0' }}>
-  Track Completion: <strong>{pct}%</strong>
-</p>
-
-{/* Progress bar */}
-<div
-  className={`track-progress ${pct === 0 ? 'track-progress--empty' : ''}`}
-  aria-label={`Track completion ${pct}%`}
-  title={`Track completion ${pct}%`}
->
-  <div
-    className="track-progress__fill"
-    style={{ width: `${pct}%` }}
-  />
-</div>
-
         </div>
-      );
-    })}
-  </div>
-</div>
 
+        {/* Staff on Duty (right) */}
+        <div className="glass-card team-overview-card">
+          <h3 style={{ marginTop: 0 }}>Staff on Duty (Live)</h3>
+          {loadingDuty ? (
+            <p>Loading…</p>
+          ) : (
+            <>
+              {trackIds.map((key) => {
+                const list = byTrack[key] || [];
+                return (
+                  <div key={key} className="card-inner" style={{ marginBottom: 12 }}>
+                    <p style={{ fontWeight: 600, margin: 0 }}>
+                      {TRACKS[key]?.displayName || key} — {list.length} on duty
+                    </p>
+                    {list.length > 0 ? (
+                      <ul style={{ marginTop: 6, opacity: 0.9 }}>
+                        {list.map((u) => (
+                          <li key={u.id} style={{ marginLeft: 16, listStyle: 'disc' }}>
+                            {u.name || u.email || u.id}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p style={{ fontSize: 13, color: '#aaa', marginLeft: 16, marginTop: 6 }}>
+                        No staff clocked in
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
 
-{/* Staff on Duty — grouped by track, only clocked-in */}
-<div
-  className="glass-card"
-  style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
->
-  <h3 style={{ marginTop: 0 }}>Staff on Duty</h3>
+              {/* Unexpected tracks present in Firestore but not in TRACKS.js */}
+              {Object.keys(byTrack)
+                .filter((k) => !trackIds.includes(k))
+                .map((k) => (
+                  <div key={k} className="card-inner" style={{ marginBottom: 12 }}>
+                    <p style={{ fontWeight: 600, margin: 0 }}>
+                      {k} — {byTrack[k].length} on duty
+                    </p>
+                    <ul style={{ marginTop: 6, opacity: 0.9 }}>
+                      {byTrack[k].map((u) => (
+                        <li key={u.id} style={{ marginLeft: 16, listStyle: 'disc' }}>
+                          {u.name || u.email || u.id}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+            </>
+          )}
+        </div>
 
-  {Object.keys(clockedInByTrack).length === 0 ? (
-    <p style={{ opacity: 0.8, margin: 0 }}>No staff are currently clocked in.</p>
-  ) : (
-    Object.entries(clockedInByTrack).map(([trackName, staff]) => (
-      <div key={trackName} style={{ marginBottom: 16 }}>
-        <h4 style={{ margin: '0 0 8px', opacity: 0.9 }}>{trackName}</h4>
+        {/* Track status + progress (full width under) */}
+        <div className="glass-card progress-summary-card">
+          <h3 style={{ marginTop: 0 }}>Tracks — Status & Progress</h3>
 
-        {staff.map((u, idx) => (
-          <div
-            key={u.id || idx}
-            style={{
-              padding: '8px 0',
-              borderBottom:
-                idx === staff.length - 1
-                  ? 'none'
-                  : '1px solid rgba(255,255,255,0.08)',
-            }}
-          >
-            <p style={{ margin: 0 }}>
-              <strong>{u.name || u.email}</strong>
-            </p>
-            <p style={{ margin: '2px 0 0' }}>Role: {u.role}</p>
-            <p style={{ margin: '2px 0 0' }}>
-              Status: <span style={{ color: 'lightgreen' }}>Clocked In</span>
-            </p>
-            <p style={{ margin: '2px 0 0' }}>
-              Task Progress: {u.percentDone}% ({u.completedCount}/{u.totalTasks})
-            </p>
-          </div>
-        ))}
-      </div>
-    ))
-  )}
-</div>
+          {loadingTracks ? (
+            <p>Loading tracks…</p>
+          ) : (
+            <div className="grid tracks-grid">
+              {trackIds.map((id) => {
+                const t = TRACKS[id];
+                const meta = trackDocs[id] || { isOpen: false, note: '', completionPercent: 0 };
+                const openClass = meta.isOpen ? 'dot-open' : 'dot-closed';
+                const percent = meta.completionPercent ?? 0;
 
+                return (
+                  <div key={id} className="track-card">
+                    <div className="card track">
+                      <div className="row between wrap gap12">
+                        <div className="row gap12 center">
+                          <span className={`dot ${openClass}`} />
+                          <h4 className="track-name">{t?.displayName || id}</h4>
+                        </div>
+                        <span className="small muted">{meta.note}</span>
+                      </div>
 
-
-       
+                      <div style={{ marginTop: 10 }}>
+                        <TrackProgressBar percent={percent} />
+                        <div className="row between" style={{ marginTop: 6 }}>
+                          <span className="small muted">Completion</span>
+                          <span className="small">{percent}%</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </>
   );
 }
-
-export default AdminDashboard;
