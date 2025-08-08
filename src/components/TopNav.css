@@ -1,19 +1,13 @@
 /* src/components/TopNav.css */
 
-.top-nav {
-  width: 100%;
+.topnav {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(20, 20, 20, 0.8);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(12px);
-  padding: 8px 20px;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  font-family: 'Inter', sans-serif !important;
-  flex-wrap: wrap; /* allow wrapping if space runs out */
+  padding: 8px 16px;
+  background: var(--glass-bg); /* comes from theme.css */
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .logo-text {
@@ -83,4 +77,15 @@
 
 .logout-btn {
   flex-shrink: 0;             /* never squish or push off-screen */
+}
+
+.topnav .left,
+.topnav .right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.topnav .right {
+  margin-left: auto;
 }

@@ -1,14 +1,17 @@
 // src/components/TopNav.js
+// ⬇️ Paste this entire file
+
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase';
+import { useAuth } from '../AuthContext';
+import Avatar from './Avatar';
 import './TopNav.css';
-import AvatarUploader from './AvatarUploader';
 
 const TopNav = ({ role }) => {
   const navigate = useNavigate();
-  const safeRole = role || 'worker'; // fallback if role missing
+  const { user, profile } = useAuth();
 
   const handleLogout = async () => {
     try {
@@ -19,52 +22,39 @@ const TopNav = ({ role }) => {
     }
   };
 
-  // Clean, minimal buttons for admin
-  // ✅ Added "Seed Hours" (admin-only) that links to /admin/seed-hours
+  // ⚠️ Keep your existing button set; adjust labels/paths if needed
   const adminButtons = [
     { label: 'Dashboard', path: '/admin-dashboard' },
     { label: 'Leave Requests', path: '/admin-leave' },
-    { label: 'Stock Room', path: '/stockroom' },
-  
-  
+    { label: 'Stock Room', path: '/stockroom'},
   ];
 
-  // Clean, minimal buttons for worker
   const workerButtons = [
-    { label: 'Dashboard', path: '/worker-dashboard' },
+    { label: 'Worker Dashboard', path: '/worker-dashboard' },
     { label: 'Apply for Leave', path: '/request-leave' },
-    { label: 'Request Supplies', path: '/request-supplies' },
   ];
 
-  const buttonsToShow = safeRole === 'admin' ? adminButtons : workerButtons;
+  const buttons = role === 'admin' ? adminButtons : workerButtons;
 
   return (
-    <div className="top-nav">
-      <div className="nav-left">
-        <div className="nav-buttons">
-          {buttonsToShow.map((btn) => (
-            <button
-              key={btn.path}
-              className="nav-btn"
-              onClick={() => navigate(btn.path)}
-            >
-              {btn.label}
-            </button>
-          ))}
-        </div>
+    <div className="topnav">
+      <div className="left">
+        {buttons.map((b) => (
+          <button key={b.path} className="nav-btn" onClick={() => navigate(b.path)}>
+            {b.label}
+          </button>
+        ))}
       </div>
-
-      {/* Right side: profile + logout */}
-      <div className="nav-right" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-        <AvatarUploader
-          currentPhotoURL={auth.currentUser?.photoURL}
-          onUploaded={(url) => {
-            // optional: refresh UI or user context
-          }}
-        />
-        <button className="logout-btn" onClick={handleLogout}>
-          Logout
+      <div className="right">
+        <button className="nav-btn" onClick={() => navigate('/profile')}>
+          Profile
         </button>
+        <button className="nav-btn" onClick={handleLogout}>Logout</button>
+        <Avatar
+          src={profile?.photoURL || user?.photoURL || ''}
+          alt={profile?.displayName || user?.email || 'User'}
+          size={36}
+        />
       </div>
     </div>
   );

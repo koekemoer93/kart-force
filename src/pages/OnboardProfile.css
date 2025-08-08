@@ -1,0 +1,40 @@
+/* src/pages/OnboardProfile.css */
+.page-wrap {
+  padding: 16px;
+}
+
+.profile-card {
+  max-width: 520px;
+  margin: 0 auto;
+  backdrop-filter: blur(6px);
+}
+
+.profile-form {
+  display: grid;
+  gap: 16px;
+}
+
+.label {
+  display: grid;
+  gap: 8px;
+  color: #eaeaea;
+}
+
+.input, .input-file {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 12px;
+  padding: 12px;
+  color: #fff;
+}
+
+.button-primary {
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.08));
+  color: #fff;
+}
+
+.error { color: #ff6b6b; }
+.ok { color: #7dff9b; }

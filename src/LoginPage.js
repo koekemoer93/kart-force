@@ -1,13 +1,12 @@
+// src/LoginPage.js
+// FULL FILE — paste everything below
+
 import React, { useState, useEffect } from 'react';
 import { auth, db } from './firebase';
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
-import { signInWithEmailAndPassword, setPersistence, inMemoryPersistence } from "firebase/auth";
-
-// --- Dev bypass flag (set in .env.development.local) ---
-const BYPASS =
-  String(process.env.REACT_APP_BYPASS_GEOFENCE || '').toLowerCase() === 'true';
+import { signInWithEmailAndPassword, setPersistence, inMemoryPersistence, updateProfile } from "firebase/auth";
 
 // --- Geofence settings ---
 const GEOFENCE_RADIUS_M = 300; // match WorkerDashboard threshold
@@ -46,16 +45,39 @@ function getTrackCoords(trackDocData) {
   return { trackLat, trackLng };
 }
 
+// --- Helper: ensure Firestore users/{uid} exists ---
+async function ensureUserDoc(user) {
+  const userRef = doc(db, "users", user.uid);
+  const snap = await getDoc(userRef);
+
+  if (!snap.exists()) {
+    const newDoc = {
+      uid: user.uid,
+      email: user.email || '',
+      displayName: user.displayName || '',
+      photoURL: user.photoURL || '',
+      role: 'worker',             // default; set to "admin" in Firestore for owners (e.g., Billy)
+      assignedTrack: null,        // you can set this later per worker
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+    await setDoc(userRef, newDoc);
+    return newDoc;
+  }
+
+  return snap.data();
+}
+
 function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-  const { user, role } = useAuth();
+  const { user, role } = useAuth(); // not auto-redirecting from here
 
   useEffect(() => {
-    // No auto-redirect on page load anymore
+    // No auto-redirect on page load anymore (kept as you had it)
   }, []);
 
   const handleLogin = async (e) => {
@@ -64,33 +86,47 @@ function LoginPage() {
     setLoading(true);
 
     try {
+      // No "stay logged in" — use memory-only session
       await setPersistence(auth, inMemoryPersistence);
 
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const uid = userCredential.user.uid;
+      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
+      const u = userCredential.user;
 
-      const userDoc = await getDoc(doc(db, "users", uid));
-      if (!userDoc.exists()) throw new Error("User profile not found");
+      // 🔒 Make sure users/{uid} exists (fixes "User profile not found")
+      const userData = await ensureUserDoc(u);
 
-      const userData = userDoc.data();
+      // (Optional) keep Auth displayName/photo in sync with Firestore if present
+      if (
+        (userData.displayName && u.displayName !== userData.displayName) ||
+        (userData.photoURL && u.photoURL !== userData.photoURL)
+      ) {
+        await updateProfile(u, {
+          displayName: userData.displayName || u.displayName || '',
+          photoURL: userData.photoURL || u.photoURL || ''
+        });
+      }
+
       const userRole = userData.role;
 
-      // Admins skip geofence
       if (userRole === "admin") {
         navigate("/admin-dashboard");
         return;
       }
 
       if (userRole === "worker") {
-        // 🔴 DEV BYPASS: if set, skip geofence and go straight in
-        if (BYPASS) {
-          navigate("/worker-dashboard");
+        const assignedTrack = userData.assignedTrack;
+        if (!assignedTrack) {
+          setError("No track assigned to your account. Please contact admin.");
+          setLoading(false);
           return;
         }
 
-        const assignedTrack = userData.assignedTrack;
         const trackDoc = await getDoc(doc(db, "tracks", assignedTrack));
-        if (!trackDoc.exists()) throw new Error("Track not found");
+        if (!trackDoc.exists()) {
+          setError("Track not found. Please contact admin.");
+          setLoading(false);
+          return;
+        }
 
         const trackData = trackDoc.data();
         const { trackLat, trackLng } = getTrackCoords(trackData);
@@ -204,7 +240,7 @@ function LoginPage() {
 
     } catch (err) {
       console.error(err);
-      setError(err.message);
+      setError(err.message || 'Login failed.');
       setLoading(false);
     }
   };
