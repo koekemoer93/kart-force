@@ -1,56 +1,86 @@
 /* src/components/TopNav.css */
+
 .top-nav {
   width: 100%;
   display: flex;
   justify-content: space-between;
   align-items: center;
   background: rgba(20, 20, 20, 0.8);
-  border-bottom: 1px solid rgba(255,255,255,0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(12px);
-  padding: 12px 24px;
+  padding: 8px 20px;
   position: sticky;
   top: 0;
   z-index: 100;
+  font-family: 'Inter', sans-serif !important;
+  flex-wrap: wrap; /* allow wrapping if space runs out */
 }
 
 .logo-text {
   color: #48ff99;
   font-size: 1.2rem;
-  font-weight: bold;
+  font-weight: 700;
 }
 
 .middle {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+  flex-wrap: wrap; /* allow buttons to move to next line */
+  gap: 8px;
   justify-content: center;
+  flex: 1; /* take available space but allow logout button to stay visible */
+  min-width: 200px;
 }
 
+.nav-btn,
 .nav-button {
   background: rgba(255, 255, 255, 0.1);
-  color: white;
+  color: #fff;
   border: none;
   border-radius: 8px;
-  padding: 6px 12px;
+  padding: 4px 10px;
   cursor: pointer;
   font-size: 0.9rem;
-  transition: all 0.2s;
+  font-family: 'Inter', sans-serif !important;
+  transition: all 0.2s ease;
 }
 
+.nav-btn:hover,
 .nav-button:hover {
   background: #48ff99;
-  color: black;
+  color: #000;
 }
 
 .logout-btn {
   background-color: #ff4d4d;
-  color: white;
+  color: #fff;
   border: none;
-  padding: 8px 16px;
+  padding: 6px 12px;
   border-radius: 8px;
   cursor: pointer;
-  font-weight: bold;
+  font-weight: 700;
+  font-family: 'Inter', sans-serif !important;
+  flex-shrink: 0; /* prevent it from getting squished */
 }
+
 .logout-btn:hover {
   background-color: #e60000;
+}
+
+/* src/components/TopNav.css additions */
+.top-nav {
+  display: flex;
+  flex-wrap: wrap;            /* allows wrapping when space is tight */
+}
+
+.middle {
+  display: flex;
+  flex-wrap: wrap;            /* menu can wrap to next line */
+  gap: 8px;
+  justify-content: center;
+  flex: 1;                    /* take remaining space */
+  min-width: 200px;
+}
+
+.logout-btn {
+  flex-shrink: 0;             /* never squish or push off-screen */
 }

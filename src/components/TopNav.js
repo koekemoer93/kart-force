@@ -3,6 +3,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase';
+import './TopNav.css';
 
 const TopNav = ({ role }) => {
   const navigate = useNavigate();
@@ -19,12 +20,12 @@ const TopNav = ({ role }) => {
   // Buttons for admin
   const trackButtons = [
     { label: 'Dashboard', path: '/admin-dashboard' },
-    { label: 'Syringa Park', path: '/track/syringa' },
+    { label: 'SyringaPark', path: '/track/syringa' },
     { label: 'Epic Karting Pavilion', path: '/track/pavilion' },
     { label: 'Midlands', path: '/track/midlands' },
     { label: 'Clearwater', path: '/track/clearwater' },
     { label: 'Indykart Parkview', path: '/track/parkview' },
-    { label: 'Leave Requests', path: '/request-leave' }, // this one is fine if you meant to show it to admin
+    { label: 'Leave Requests', path: '/admin-leave' },
   ];
 
   // Buttons for worker
@@ -64,8 +65,21 @@ const TopNav = ({ role }) => {
         </div>
       </div>
 
-      {/* Right-side logout – cleaned and kept only one */}
-      <div className="nav-right">
+      {/* Right-side buttons */}
+      <div className="nav-right" style={{ display: 'flex', gap: '10px' }}>
+        {role === 'admin' && (
+          <button
+            className="nav-btn"
+            style={{
+              background: 'linear-gradient(90deg, #00ffae, #00c3ff)',
+              color: '#000',
+              fontWeight: 'bold',
+            }}
+            onClick={() => navigate('/seed-hours')}
+          >
+            Seed SyringaPark Hours
+          </button>
+        )}
         <button className="logout-btn" onClick={handleLogout}>
           Logout
         </button>

@@ -1,10 +1,44 @@
 /* src/theme.css */
+:root {
+  --nav-h: 56px; /* change once, whole app updates */
+}
+
+/* Ensure the top nav has a predictable height */
+.top-nav {
+  height: var(--nav-h);
+}
+
+/* Make every page section snap to the remaining viewport height */
+.main-wrapper {
+  min-height: calc(100vh - var(--nav-h));
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: min(1200px, 100%);
+  padding: clamp(12px, 2vw, 32px);
+  margin: 0 auto; /* center content on wide screens */
+}
+
+/* Cards stretch nicely but never overflow the screen */
+.glass-card {
+  width: 100%;
+  max-width: 100%;
+}
+
+/* Any images (like avatars) won’t blow up the layout */
+img {
+  max-width: 100%;
+  height: auto;
+}
+
 body {
   margin: 0;
-  font-family: 'Helvetica Neue', Arial, sans-serif;
+  font-family: 'Inter',sans-serif !important;
   background: #111;
   color: #fff;
   min-height: 100vh;
+   
+
 }
 .main-wrapper {
   min-height: 100vh;
@@ -12,6 +46,7 @@ body {
   align-items: center;
   justify-content: center;
   background: linear-gradient(120deg, #1a1a1a 0%, #232526 100%);
+  
 }
 .glass-card {
   background: rgba(20, 20, 20, 0.75);

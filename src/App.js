@@ -9,6 +9,8 @@ import TrackDetailsPage from './TrackDetailsPage'; // ✅ ADDED
 import TaskHistoryPage from './TaskHistoryPage';
 import LeaveRequestPage from './LeaveRequestPage'; // at the top with other imports
 import AdminLeavePanel from './AdminLeavePanel';
+import SeedHours from './SeedHours';
+
 
 
 
@@ -27,6 +29,7 @@ function App() {
       <Router>
         <Routes>
           <Route path="/" element={<LoginPage />} />
+          <Route path="/seed-hours" element={<SeedHours />} />
           <Route path="/task-history" element={<TaskHistoryPage />} />
           <Route path="/request-leave" element={<LeaveRequestPage />} />
           <Route path="/admin-leave" element={<AdminLeavePanel />} />
