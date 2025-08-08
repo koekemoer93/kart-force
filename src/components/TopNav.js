@@ -67,19 +67,6 @@ const TopNav = ({ role }) => {
 
       {/* Right-side buttons */}
       <div className="nav-right" style={{ display: 'flex', gap: '10px' }}>
-        {role === 'admin' && (
-          <button
-            className="nav-btn"
-            style={{
-              background: 'linear-gradient(90deg, #00ffae, #00c3ff)',
-              color: '#000',
-              fontWeight: 'bold',
-            }}
-            onClick={() => navigate('/seed-hours')}
-          >
-            Seed SyringaPark Hours
-          </button>
-        )}
         <button className="logout-btn" onClick={handleLogout}>
           Logout
         </button>

@@ -266,3 +266,25 @@ html, body, #root {
 .track-name { margin: 0; }
 
 .link-reset { text-decoration: none; color: inherit; }
+
+/* === Track progress bar === */
+.track-progress {
+  height: 8px;
+  background: var(--panel-2, #1d1f22);
+  border: 1px solid var(--border, #2a2d31);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.track-progress__fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #22c55e, #10b981);
+  transition: width 300ms ease;
+}
+
+/* optional: dim bar when 0% */
+.track-progress--empty .track-progress__fill {
+  background: linear-gradient(90deg, #334155, #1f2937);
+}

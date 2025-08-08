@@ -282,12 +282,25 @@ function AdminDashboard({ displayName, role }) {
             </span>
           </p>
 
-          <p style={{ margin: '6px 0 0' }}>
-            Completed Tasks: {data.completed}/{data.total}
-          </p>
-          <p style={{ margin: '2px 0 0' }}>
-            Track Completion: <strong>{pct}%</strong>
-          </p>
+         <p style={{ margin: '6px 0 0' }}>
+  Completed Tasks: {data.completed}/{data.total}
+</p>
+<p style={{ margin: '2px 0 6px 0' }}>
+  Track Completion: <strong>{pct}%</strong>
+</p>
+
+{/* Progress bar */}
+<div
+  className={`track-progress ${pct === 0 ? 'track-progress--empty' : ''}`}
+  aria-label={`Track completion ${pct}%`}
+  title={`Track completion ${pct}%`}
+>
+  <div
+    className="track-progress__fill"
+    style={{ width: `${pct}%` }}
+  />
+</div>
+
         </div>
       );
     })}
