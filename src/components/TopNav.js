@@ -25,8 +25,8 @@ const TopNav = ({ role }) => {
     { label: 'Dashboard', path: '/admin-dashboard' },
     { label: 'Leave Requests', path: '/admin-leave' },
     { label: 'Stock Room', path: '/stockroom' },
-    { label: 'Hours', path: '/hours' },
-    { label: 'Seed Hours', path: '/admin/seed-hours' }, // <-- NEW
+  
+  
   ];
 
   // Clean, minimal buttons for worker
