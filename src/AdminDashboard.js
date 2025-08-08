@@ -5,24 +5,24 @@ import { useStaffOnDuty } from './hooks/useStaffOnDuty';
 import TRACKS from './constants/tracks';
 import { db } from './firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import { fetchTrackHoursRaw } from './services/tracks';
+import { normalizeWeeklyHours, isOpenNow } from './utils/hours';
 
-// ---- Helpers: compute "open now" from trading hours ----
-// Expected structure in Firestore (tracks/{trackId}):
-// {
-//   isOpen?: boolean,                         // optional: immediate override
-//   completionPercent?: number,               // optional: for progress bars
-//   progress?: { completionPercent?: number}, // optional legacy shape
-//   tradingHours?: {
-//     mon: { open: "09:00", close: "21:00", closed?: boolean },
-//     tue: { ... }, wed: { ... }, thu: { ... }, fri: { ... }, sat: { ... }, sun: { ... }
-//   }
-// }
-function computeIsOpenFromHours(tradingHours, now = new Date()) {
-  if (!tradingHours) return { isOpen: false, note: 'No hours set' };
+/**
+ * Helpers: compute "open now" from hours
+ * Supports BOTH:
+ *  - openingHours (your SeedHours.js writes this)
+ *  - tradingHours (legacy shape)
+ *
+ * Firestore shape per day:
+ * { open: "HH:MM", close: "HH:MM", closed?: boolean }
+ */
+function computeIsOpenFromHours(hours, now = new Date()) {
+  if (!hours) return { isOpen: false, note: 'No hours set' };
 
   const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
   const dKey = days[now.getDay()];
-  const day = tradingHours[dKey];
+  const day = hours[dKey];
   if (!day || day.closed) return { isOpen: false, note: 'Closed today' };
 
   const parseHM = (s) => {
@@ -55,10 +55,7 @@ function TrackProgressBar({ percent }) {
   const empty = v <= 0;
   return (
     <div className={`track-progress ${empty ? 'track-progress--empty' : ''}`}>
-      <div
-        className="track-progress__fill"
-        style={{ width: `${v}%` }}
-      />
+      <div className="track-progress__fill" style={{ width: `${v}%` }} />
     </div>
   );
 }
@@ -69,6 +66,11 @@ export default function AdminDashboard() {
   const [trackDocs, setTrackDocs] = useState({}); // { [trackId]: { isOpen, note, completionPercent } }
   const [loadingTracks, setLoadingTracks] = useState(true);
 
+  // Normalized hours loaded from /tracks/{id}.hours (FIELD) with fallback to /tracks/{id}/config/hours
+  const [trackHours, setTrackHours] = useState({}); // { [trackId]: normalizedArrayOrNull }
+  const [hoursLoading, setHoursLoading] = useState(false);
+  const [hoursError, setHoursError] = useState(null);
+
   // Fetch each track doc once (keeps your Firestore schema flexible)
   useEffect(() => {
     let cancelled = false;
@@ -77,7 +79,9 @@ export default function AdminDashboard() {
         const results = {};
         for (const id of trackIds) {
           try {
-            const snap = await getDoc(doc(db, 'tracks', id));
+            const fetchId = TRACKS[id]?.id || id; // use Firestore doc id if provided
+            const snap = await getDoc(doc(db, 'tracks', fetchId));
+
             if (!snap.exists()) {
               results[id] = {
                 isOpen: false,
@@ -90,7 +94,7 @@ export default function AdminDashboard() {
 
             // Determine open/closed with sensible priority:
             // 1) explicit isOpen boolean (if you set it via a toggle)
-            // 2) compute from tradingHours
+            // 2) openingHours (SeedHours.js) OR tradingHours (legacy)
             // 3) default false
             let isOpen = false;
             let note = '';
@@ -98,7 +102,8 @@ export default function AdminDashboard() {
               isOpen = data.isOpen;
               note = isOpen ? 'Open now' : 'Closed now';
             } else {
-              const res = computeIsOpenFromHours(data.tradingHours);
+              const hours = data.openingHours || data.tradingHours || null;
+              const res = computeIsOpenFromHours(hours);
               isOpen = res.isOpen;
               note = res.note;
             }
@@ -130,8 +135,45 @@ export default function AdminDashboard() {
         if (!cancelled) setLoadingTracks(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [trackIds]);
+
+  // Load hours for every track on mount (FIELD hours with fallback to /config/hours)
+  useEffect(() => {
+    let isMounted = true;
+    async function loadAllHours() {
+      try {
+        setHoursLoading(true);
+        setHoursError(null);
+
+        const entries = Object.values(TRACKS); // [{id, displayName, ...}, ...]
+        const results = await Promise.all(
+          entries.map(async (t) => {
+            const raw = await fetchTrackHoursRaw(t.id);
+            const normalized = normalizeWeeklyHours(raw);
+            return [t.id, normalized];
+          })
+        );
+
+        if (!isMounted) return;
+        const map = {};
+        results.forEach(([id, normalized]) => {
+          map[id] = normalized;
+        });
+        setTrackHours(map);
+      } catch (e) {
+        if (isMounted) setHoursError(e.message || String(e));
+      } finally {
+        if (isMounted) setHoursLoading(false);
+      }
+    }
+    loadAllHours();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   return (
     <>
@@ -168,7 +210,14 @@ export default function AdminDashboard() {
                         ))}
                       </ul>
                     ) : (
-                      <p style={{ fontSize: 13, color: '#aaa', marginLeft: 16, marginTop: 6 }}>
+                      <p
+                        style={{
+                          fontSize: 13,
+                          color: '#aaa',
+                          marginLeft: 16,
+                          marginTop: 6,
+                        }}
+                      >
                         No staff clocked in
                       </p>
                     )}
@@ -207,8 +256,34 @@ export default function AdminDashboard() {
             <div className="grid tracks-grid">
               {trackIds.map((id) => {
                 const t = TRACKS[id];
-                const meta = trackDocs[id] || { isOpen: false, note: '', completionPercent: 0 };
-                const openClass = meta.isOpen ? 'dot-open' : 'dot-closed';
+
+                // meta from your existing Firestore doc fetch (fallback if hours missing)
+                const meta = trackDocs[id] || {
+                  isOpen: false,
+                  note: '',
+                  completionPercent: 0,
+                };
+
+                // Map the UI key -> Firestore doc id used when we loaded hours
+                const trackKey = TRACKS[id]?.id || id;
+
+                // Prefer normalized hours we fetched (field hours -> fallback /config/hours)
+                const normalized = trackHours[trackKey];
+
+                // Build final status, preferring normalized hours. Fallback to meta.
+                let statusOpen = meta.isOpen;
+                let statusNote = meta.note || 'No hours set';
+
+                if (hoursLoading) {
+                  statusNote = 'Loading hours…';
+                } else if (hoursError) {
+                  statusNote = 'Hours error';
+                } else if (normalized) {
+                  statusOpen = isOpenNow(normalized, new Date());
+                  statusNote = statusOpen ? 'Open now' : 'Closed now';
+                }
+
+                const openClass = statusOpen ? 'dot-open' : 'dot-closed';
                 const percent = meta.completionPercent ?? 0;
 
                 return (
@@ -219,7 +294,7 @@ export default function AdminDashboard() {
                           <span className={`dot ${openClass}`} />
                           <h4 className="track-name">{t?.displayName || id}</h4>
                         </div>
-                        <span className="small muted">{meta.note}</span>
+                        <span className="small muted">{statusNote}</span>
                       </div>
 
                       <div style={{ marginTop: 10 }}>

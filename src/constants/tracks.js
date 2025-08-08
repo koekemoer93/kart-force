@@ -1,64 +1,73 @@
 // src/constants/tracks.js
+// IMPORTANT: `id` MUST MATCH the Firestore doc ID in /tracks/{id}
 
 const TRACKS = {
   "Epic Karting Syringa Park": {
-    id: "Epic Karting Syringa Park",
+    id: "SyringaPark", // exact Firestore ID
     displayName: "Epic Karting Syringa Park",
-    lat: 0,  // TODO: replace with actual latitude
-    lng: 0,  // TODO: replace with actual longitude
+    lat: 0,  // TODO: real latitude
+    lng: 0,  // TODO: real longitude
     radiusMeters: 250,
   },
-  "Epic karting pavilion": {
-    id: "Epic karting pavilion",
+
+  "Epic Karting Pavilion": {
+    id: "epic-karting-pavilion",
     displayName: "Epic Karting Pavilion",
     lat: 0,
     lng: 0,
     radiusMeters: 250,
   },
-  "Epic karting midlands": {
-    id: "Epic karting midlands",
+
+  "Epic Karting Midlands": {
+    id: "epic-karting-midlands",
     displayName: "Epic Karting Midlands",
     lat: 0,
     lng: 0,
     radiusMeters: 250,
   },
-  "Indykart gateway": {
-    id: "Indykart gateway",
+
+  "IndyKart Gateway": {
+    id: "indykart-gateway",
     displayName: "IndyKart Gateway",
     lat: 0,
     lng: 0,
     radiusMeters: 250,
   },
-  "Indykart eastgate": {
-    id: "Indykart eastgate",
+
+  "IndyKart Eastgate": {
+    id: "indykart-eastgate",
     displayName: "IndyKart Eastgate",
     lat: 0,
     lng: 0,
     radiusMeters: 250,
   },
-  "Indykart parkview": {
-    id: "Indykart parkview",
+
+  "IndyKart Parkview": {
+    id: "indykart-parkview",
     displayName: "IndyKart Parkview",
     lat: 0,
     lng: 0,
     radiusMeters: 250,
   },
-  "Indykart mall of the south": {
-    id: "Indykart mall of the south",
+
+  "IndyKart Mall of the South": {
+    id: "indykart-mall-of-the-south",
     displayName: "IndyKart Mall of the South",
     lat: 0,
     lng: 0,
     radiusMeters: 250,
   },
-  "Indykart clearwater": {
-    id: "Indykart clearwater",
+
+  "IndyKart Clearwater": {
+    id: "indykart-clearwater",
     displayName: "IndyKart Clearwater",
     lat: 0,
     lng: 0,
     radiusMeters: 250,
   },
-  "RBEK Rosebank electric karting": {
-    id: "RBEK Rosebank electric karting",
+
+  "RBEK Rosebank Electric Karting": {
+    id: "rbek",
     displayName: "RBEK Rosebank Electric Karting",
     lat: 0,
     lng: 0,

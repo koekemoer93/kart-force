@@ -8,7 +8,7 @@ import AvatarUploader from './AvatarUploader';
 
 const TopNav = ({ role }) => {
   const navigate = useNavigate();
-  const safeRole = role || 'worker'; // default just in case
+  const safeRole = role || 'worker'; // fallback if role missing
 
   const handleLogout = async () => {
     try {
@@ -19,23 +19,21 @@ const TopNav = ({ role }) => {
     }
   };
 
-  // Buttons for admin
+  // Clean, minimal buttons for admin
+  // ✅ Added "Seed Hours" (admin-only) that links to /admin/seed-hours
   const adminButtons = [
     { label: 'Dashboard', path: '/admin-dashboard' },
-    { label: 'SyringaPark', path: '/track/syringa' },
-    { label: 'Epic Karting Pavilion', path: '/track/pavilion' },
-    { label: 'Midlands', path: '/track/midlands' },
-    { label: 'Clearwater', path: '/track/clearwater' },
-    { label: 'Indykart Parkview', path: '/track/parkview' },
     { label: 'Leave Requests', path: '/admin-leave' },
-    { label: 'Stock Room', path: '/stockroom' },           // NEW: admin inventory
+    { label: 'Stock Room', path: '/stockroom' },
+    { label: 'Hours', path: '/hours' },
+    { label: 'Seed Hours', path: '/admin/seed-hours' }, // <-- NEW
   ];
 
-  // Buttons for worker
+  // Clean, minimal buttons for worker
   const workerButtons = [
     { label: 'Dashboard', path: '/worker-dashboard' },
     { label: 'Apply for Leave', path: '/request-leave' },
-    { label: 'Request Supplies', path: '/request-supplies' }, // NEW: weekly supply list
+    { label: 'Request Supplies', path: '/request-supplies' },
   ];
 
   const buttonsToShow = safeRole === 'admin' ? adminButtons : workerButtons;
@@ -43,7 +41,6 @@ const TopNav = ({ role }) => {
   return (
     <div className="top-nav">
       <div className="nav-left">
-        {/* Navigation buttons */}
         <div className="nav-buttons">
           {buttonsToShow.map((btn) => (
             <button
@@ -59,15 +56,12 @@ const TopNav = ({ role }) => {
 
       {/* Right side: profile + logout */}
       <div className="nav-right" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-        {/* Profile picture uploader */}
         <AvatarUploader
           currentPhotoURL={auth.currentUser?.photoURL}
           onUploaded={(url) => {
-            // optional: you could force a reload of user data in context if needed
+            // optional: refresh UI or user context
           }}
         />
-
-        {/* Logout button */}
         <button className="logout-btn" onClick={handleLogout}>
           Logout
         </button>
