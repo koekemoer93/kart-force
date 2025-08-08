@@ -11,6 +11,9 @@ import LeaveRequestPage from './LeaveRequestPage'; // at the top with other impo
 import AdminLeavePanel from './AdminLeavePanel';
 import SeedHours from './SeedHours';
 import GeofenceGate from './components/GeofenceGate';
+import StockRoom from './pages/StockRoom';
+import SupplyRequest from './pages/SupplyRequest';
+
 
 
 
@@ -39,6 +42,8 @@ function App() {
   }
 />
           <Route path="/" element={<LoginPage />} />
+          <Route path="/stockroom" element={<StockRoom />} />
+          <Route path="/request-supplies" element={<SupplyRequest />} />
           <Route path="/seed-hours" element={<SeedHours />} />
           <Route path="/task-history" element={<TaskHistoryPage />} />
           <Route path="/request-leave" element={<LeaveRequestPage />} />
