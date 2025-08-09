@@ -293,3 +293,20 @@ img { max-width: 100%; height: auto; }
   opacity: 0.95;
   pointer-events: none;           /* don't block taps/clicks */
 }
+
+/* Admin info bar should always start on a new row and span full width */
+.info-bar-card {
+  display: flex;
+  width: 100%;
+  flex-basis: 100%;
+}
+
+/* If the parent uses grid, make sure it spans all columns */
+.admin-dashboard-layout .info-bar-card {
+  grid-column: 1 / -1;
+}
+
+/* Give the welcome card a bit of bottom margin so the info bar sits under it cleanly */
+.welcome-card {
+  margin-bottom: 8px;
+}

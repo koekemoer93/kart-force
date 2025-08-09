@@ -1,19 +1,17 @@
-// src/WorkerDashboard.js
 import React, { useEffect, useMemo, useState } from 'react';
 import { db } from './firebase';
 import { useAuth } from './AuthContext';
 import {
-  doc,
-  getDoc,
   collection,
   query,
   where,
-  getDocs,
-  addDoc,
-  Timestamp,
   onSnapshot,
   orderBy,
-  limit
+  limit,
+  doc,
+  updateDoc,
+  arrayUnion,
+  arrayRemove
 } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 import TopNav from './components/TopNav';
@@ -21,8 +19,9 @@ import { clockIn, clockOut } from './services/timeEntries';
 import { useGeofence } from './hooks/useGeofence';
 import TRACKS from './constants/tracks';
 import { haversineDistanceMeters } from './utils/geo';
+import { useTasks } from './hooks/useTasks';
 
-// --- New: slim horizontal progress bar ---
+// --- Slim horizontal progress bar ---
 function ProgressBar({ percent = 0, trackColor = '#4a4a4a', fillColor = '#24ff98', height = 16 }) {
   const v = Math.max(0, Math.min(100, Math.round(percent)));
   return (
@@ -61,6 +60,27 @@ export default function WorkerDashboard() {
   const role = userData?.role ?? '';
   const isClockedIn = !!userData?.isClockedIn;
 
+  // ✅ Fetch today's tasks
+  const tasks = useTasks(assignedTrack, role);
+
+  // ✅ Calculate completion % for THIS worker
+  const completion = tasks.length
+    ? Math.round(
+        (tasks.filter(t => t.completedBy.includes(user.uid)).length / tasks.length) * 100
+      )
+    : 0;
+
+  // ✅ Toggle a task's completion for this worker
+  const toggleTask = async (task) => {
+    const ref = doc(db, 'tasks', task.id);
+    const isCompleted = task.completedBy.includes(user.uid);
+    await updateDoc(ref, {
+      completedBy: isCompleted
+        ? arrayRemove(user.uid)
+        : arrayUnion(user.uid)
+    });
+  };
+
   // --- DEV BYPASS ---
   const allowBypass =
     process.env.NODE_ENV !== 'production' ||
@@ -83,8 +103,7 @@ export default function WorkerDashboard() {
   }, [allowBypass]);
 
   // --- Geofence ---
-  const { coords, isInsideFence, permissionState, error: geoError, track } =
-    useGeofence(assignedTrack);
+  const { coords, isInsideFence, track } = useGeofence(assignedTrack);
   const insideFenceOrBypass = bypassActive ? true : isInsideFence;
 
   // --- Distance ---
@@ -99,47 +118,6 @@ export default function WorkerDashboard() {
           })
         )
       : null;
-
-  // --- Tasks & completion ---
-  const [tasks, setTasks] = useState([]);
-  const [completedTaskNames, setCompletedTaskNames] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!user || !assignedTrack || !role) return;
-      const tplRef = doc(db, 'tracks', assignedTrack, 'templates', role);
-      const tplSnap = await getDoc(tplRef);
-      const tplTasks = tplSnap.exists() ? tplSnap.data().tasks || [] : [];
-      if (!cancelled) setTasks(tplTasks);
-
-      // Completed tasks today
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const startOfDay = Timestamp.fromDate(today);
-      const logsRef = collection(db, 'users', user.uid, 'completedTasks');
-      const qCompleted = query(logsRef, where('completedAt', '>=', startOfDay));
-      const snap = await getDocs(qCompleted);
-      const done = [];
-      snap.forEach((d) => done.push(d.data().taskName));
-      if (!cancelled) setCompletedTaskNames(done);
-      if (!cancelled) setLoading(false);
-    })();
-    return () => { cancelled = true; };
-  }, [user, assignedTrack, role]);
-
-  const tasksPercent = tasks.length === 0 ? 0 : Math.round((completedTaskNames.length / tasks.length) * 100);
-  async function handleTaskCheck(taskName) {
-    if (!user || completedTaskNames.includes(taskName)) return;
-    await addDoc(collection(db, 'users', user.uid, 'completedTasks'), {
-      taskName,
-      completedAt: Timestamp.now(),
-      trackId: assignedTrack,
-      role,
-    });
-    setCompletedTaskNames((prev) => [...prev, taskName]);
-  }
 
   // --- Staff on duty count (realtime) ---
   const [staffCount, setStaffCount] = useState(0);
@@ -178,8 +156,8 @@ export default function WorkerDashboard() {
     return () => unsub();
   }, [isClockedIn, user]);
 
-  // --- Shift progress (assume 8h unless userData.shiftMinutes provided) ---
-  const shiftMinutes = Number.isFinite(userData?.shiftMinutes) ? userData.shiftMinutes : 480; // 8h default
+  // --- Shift progress ---
+  const shiftMinutes = Number.isFinite(userData?.shiftMinutes) ? userData.shiftMinutes : 480;
   const shiftPercent = useMemo(() => {
     if (!clockInTime) return 0;
     const elapsedMin = Math.max(0, Math.floor((Date.now() - clockInTime.getTime()) / 60000));
@@ -187,7 +165,7 @@ export default function WorkerDashboard() {
     return Math.max(0, Math.min(100, Math.round(pct)));
   }, [clockInTime, shiftMinutes]);
 
-  // --- Geofence proximity percent (100% when inside radius) ---
+  // --- Geofence proximity percent ---
   const proximityPercent = useMemo(() => {
     if (!track || distanceToTrack == null) return 0;
     const radius = track?.radiusMeters || 300;
@@ -206,7 +184,7 @@ export default function WorkerDashboard() {
     return () => unsub();
   }, []);
 
-  // --- Clock in/out (kept, but you already removed the button from this page UI) ---
+  // --- Clock in/out ---
   const [busyClock, setBusyClock] = useState(false);
   async function handleClockButton() {
     if (!user) return;
@@ -234,15 +212,6 @@ export default function WorkerDashboard() {
 
   const currentTrackName = assignedTrack ? TRACKS[assignedTrack]?.displayName || assignedTrack : 'No track';
 
-  if (loading) {
-    return (
-      <>
-        <TopNav role="worker" />
-        <div className="main-wrapper"><div className="glass-card"><p>Loading your tasks...</p></div></div>
-      </>
-    );
-  }
-
   return (
     <>
       <TopNav role="worker" />
@@ -262,13 +231,13 @@ export default function WorkerDashboard() {
               )}
             </div>
 
-            {/* New: Progress bars panel */}
+            {/* Progress bars */}
             <div style={{ width: 280, minWidth: 240, flex: '0 0 280px' }}>
               <div style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 12, marginBottom: 6, opacity: 0.85, display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Tasks completion</span><span>{tasksPercent}%</span>
+                  <span>Tasks completion</span><span>{completion}%</span>
                 </div>
-                <ProgressBar percent={tasksPercent} fillColor="#3ed37e" />
+                <ProgressBar percent={completion} fillColor="#3ed37e" />
               </div>
 
               <div style={{ marginBottom: 10 }}>
@@ -309,36 +278,25 @@ export default function WorkerDashboard() {
             </div>
           )}
 
-          {/* Tasks */}
+          {/* Tasks list */}
           <h3 style={{ marginTop: 20 }}>Today's Tasks</h3>
           {tasks.length === 0 ? (
             <p>No tasks found.</p>
           ) : (
             <ul>
-              {tasks.filter(t => !completedTaskNames.includes(t.name)).map(t => (
-                <li key={t.id || t.name} style={{ margin: '10px 0' }}>
+              {tasks.map(t => (
+                <li key={t.id} style={{ margin: '10px 0' }}>
                   <label>
-                    <input type="checkbox" onChange={() => handleTaskCheck(t.name)} /> {t.name}
+                    <input
+                      type="checkbox"
+                      checked={t.completedBy.includes(user.uid)}
+                      onChange={() => toggleTask(t)}
+                    /> {t.title}
                   </label>
                 </li>
               ))}
             </ul>
           )}
-          {completedTaskNames.length > 0 && (
-            <div style={{ marginTop: 10 }}>
-              <h4>Completed Today</h4>
-              <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
-                {completedTaskNames.map((t, i) => <li key={i} style={{ color: '#48ff99' }}>{t}</li>)}
-              </ul>
-            </div>
-          )}
-
-          {/* View history */}
-          <div style={{ marginTop: 24, textAlign: 'center' }}>
-            <button className="button-primary" onClick={() => navigate('/task-history')} style={{ width: 180 }}>
-              View Task History
-            </button>
-          </div>
         </div>
       </div>
     </>
