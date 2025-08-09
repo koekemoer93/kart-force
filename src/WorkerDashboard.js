@@ -1,5 +1,5 @@
 // src/WorkerDashboard.js
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { db } from './firebase';
 import { useAuth } from './AuthContext';
 import {
@@ -10,7 +10,10 @@ import {
   where,
   getDocs,
   addDoc,
-  Timestamp
+  Timestamp,
+  onSnapshot,
+  orderBy,
+  limit
 } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 import TopNav from './components/TopNav';
@@ -65,24 +68,37 @@ export default function WorkerDashboard() {
   const navigate = useNavigate();
   const { user, userData, displayName } = useAuth();
 
-  // From profile (keeps Firestore naming consistent)
   const assignedTrack = userData?.assignedTrack ?? '';
   const role = userData?.role ?? '';
   const isClockedIn = !!userData?.isClockedIn;
 
-  // Geofence
-  const { coords, isInsideFence, permissionState, error: geoError, track } = useGeofence(assignedTrack);
+  // --- DEV BYPASS ---
+  const allowBypass =
+    process.env.NODE_ENV !== 'production' ||
+    String(process.env.REACT_APP_ALLOW_BYPASS).toLowerCase() === 'true';
+  const bypassActive =
+    allowBypass &&
+    typeof window !== 'undefined' &&
+    localStorage.getItem('bypassFence') === 'true';
+  useEffect(() => {
+    if (!allowBypass) return;
+    const onKey = (e) => {
+      if (e.shiftKey && (e.key === 'g' || e.key === 'G')) {
+        const next = localStorage.getItem('bypassFence') === 'true' ? 'false' : 'true';
+        localStorage.setItem('bypassFence', next);
+        window.location.reload();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [allowBypass]);
 
-  // Tasks + completion (today)
-  const [tasks, setTasks] = useState([]);
-  const [completedTaskNames, setCompletedTaskNames] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // --- Geofence ---
+  const { coords, isInsideFence, permissionState, error: geoError, track } =
+    useGeofence(assignedTrack);
+  const insideFenceOrBypass = bypassActive ? true : isInsideFence;
 
-  // UI state
-  const [busyClock, setBusyClock] = useState(false);
-  const [clockStatusMsg, setClockStatusMsg] = useState('');
-
-  // Compute distance (optional, for UX)
+  // --- Distance ---
   const distanceToTrack =
     coords && track
       ? Math.round(
@@ -95,45 +111,38 @@ export default function WorkerDashboard() {
         )
       : null;
 
-  // Load tasks (template lives at tracks/{assignedTrack}/templates/{role})
+  // --- Tasks & completion ---
+  const [tasks, setTasks] = useState([]);
+  const [completedTaskNames, setCompletedTaskNames] = useState([]);
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        if (!user || !assignedTrack || !role) return;
+      if (!user || !assignedTrack || !role) return;
+      const tplRef = doc(db, 'tracks', assignedTrack, 'templates', role);
+      const tplSnap = await getDoc(tplRef);
+      const tplTasks = tplSnap.exists() ? tplSnap.data().tasks || [] : [];
+      if (!cancelled) setTasks(tplTasks);
 
-        const tplRef = doc(db, 'tracks', assignedTrack, 'templates', role);
-        const tplSnap = await getDoc(tplRef);
-        const tplTasks = tplSnap.exists() ? tplSnap.data().tasks || [] : [];
-        if (!cancelled) setTasks(tplTasks);
-
-        // Load today's completed task names
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const startOfDay = Timestamp.fromDate(today);
-        const logsRef = collection(db, 'users', user.uid, 'completedTasks');
-        const qCompleted = query(logsRef, where('completedAt', '>=', startOfDay));
-        const snap = await getDocs(qCompleted);
-        const done = [];
-        snap.forEach((d) => done.push(d.data().taskName));
-        if (!cancelled) setCompletedTaskNames(done);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+      // Completed tasks today
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const startOfDay = Timestamp.fromDate(today);
+      const logsRef = collection(db, 'users', user.uid, 'completedTasks');
+      const qCompleted = query(logsRef, where('completedAt', '>=', startOfDay));
+      const snap = await getDocs(qCompleted);
+      const done = [];
+      snap.forEach((d) => done.push(d.data().taskName));
+      if (!cancelled) setCompletedTaskNames(done);
+      if (!cancelled) setLoading(false);
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [user, assignedTrack, role]);
 
-  // Progress %
-  const percent =
-    tasks.length === 0 ? 0 : Math.round((completedTaskNames.length / tasks.length) * 100);
-
-  // Task check
+  const percent = tasks.length === 0 ? 0 : Math.round((completedTaskNames.length / tasks.length) * 100);
   async function handleTaskCheck(taskName) {
-    if (!user) return;
-    if (completedTaskNames.includes(taskName)) return;
+    if (!user || completedTaskNames.includes(taskName)) return;
     await addDoc(collection(db, 'users', user.uid, 'completedTasks'), {
       taskName,
       completedAt: Timestamp.now(),
@@ -143,29 +152,82 @@ export default function WorkerDashboard() {
     setCompletedTaskNames((prev) => [...prev, taskName]);
   }
 
-  // Clock in/out using the centralized service + geofence
+  // --- Staff on duty count (realtime) ---
+  const [staffCount, setStaffCount] = useState(0);
+  useEffect(() => {
+    if (!assignedTrack) return;
+    const qOnDuty = query(
+      collection(db, 'timeEntries'),
+      where('trackId', '==', assignedTrack),
+      where('clockOutAt', '==', null)
+    );
+    const unsub = onSnapshot(qOnDuty, (snap) => {
+      setStaffCount(snap.size);
+    });
+    return () => unsub();
+  }, [assignedTrack]);
+
+  // --- My clock-in time (live) ---
+  const [clockInTime, setClockInTime] = useState(null);
+  useEffect(() => {
+    if (!isClockedIn) { setClockInTime(null); return; }
+    const qMyOpen = query(
+      collection(db, 'timeEntries'),
+      where('uid', '==', user.uid),
+      where('clockOutAt', '==', null),
+      orderBy('clockInAt', 'desc'),
+      limit(1)
+    );
+    const unsub = onSnapshot(qMyOpen, (snap) => {
+      if (!snap.empty) {
+        const data = snap.docs[0].data();
+        setClockInTime(data.clockInAt?.toDate() || null);
+      }
+    });
+    return () => unsub();
+  }, [isClockedIn, user]);
+
+  const clockDuration = useMemo(() => {
+    if (!clockInTime) return '';
+    const diffMs = Date.now() - clockInTime.getTime();
+    const h = Math.floor(diffMs / 3600000);
+    const m = Math.floor((diffMs % 3600000) / 60000);
+    return `${h}h ${m}m`;
+  }, [clockInTime, Date.now()]); // Date.now() will force re-render if we tie to interval
+  useEffect(() => {
+    if (!clockInTime) return;
+    const t = setInterval(() => { }, 60000); // triggers rerender via state change
+    return () => clearInterval(t);
+  }, [clockInTime]);
+
+  // --- Announcements ---
+  const [announcements, setAnnouncements] = useState([]);
+  useEffect(() => {
+    const qAnn = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'), limit(3));
+    const unsub = onSnapshot(qAnn, (snap) => {
+      setAnnouncements(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsub();
+  }, []);
+
+  // --- Clock in/out ---
+  const [busyClock, setBusyClock] = useState(false);
   async function handleClockButton() {
     if (!user) return;
     if (!assignedTrack) {
       alert('No assigned track. Ask an admin to set your track.');
       return;
     }
-    if (!isInsideFence) {
-      alert(
-        `You must be inside the ${TRACKS[assignedTrack]?.displayName || assignedTrack} geofence to clock ${
-          isClockedIn ? 'out' : 'in'
-        }.`
-      );
+    if (!insideFenceOrBypass) {
+      alert(`You must be inside the ${TRACKS[assignedTrack]?.displayName || assignedTrack} geofence to clock ${isClockedIn ? 'out' : 'in'}.`);
       return;
     }
     try {
       setBusyClock(true);
       if (isClockedIn) {
         await clockOut({ uid: user.uid });
-        setClockStatusMsg('You are clocked out');
       } else {
         await clockIn({ uid: user.uid, trackId: assignedTrack });
-        setClockStatusMsg('You are clocked in');
       }
     } catch (e) {
       alert(e.message);
@@ -174,188 +236,78 @@ export default function WorkerDashboard() {
     }
   }
 
+  const currentTrackName = assignedTrack ? TRACKS[assignedTrack]?.displayName || assignedTrack : 'No track';
+
   if (loading) {
     return (
       <>
         <TopNav role="worker" />
-        <div className="main-wrapper">
-          <div className="glass-card">
-            <p>Loading your tasks...</p>
-          </div>
-        </div>
+        <div className="main-wrapper"><div className="glass-card"><p>Loading your tasks...</p></div></div>
       </>
     );
   }
 
-  const currentTrackName =
-    assignedTrack ? TRACKS[assignedTrack]?.displayName || assignedTrack : 'No track';
-
   return (
     <>
       <TopNav role="worker" />
-      <div
-        className="main-wrapper"
-        style={{ minHeight: '100vh', alignItems: 'center', justifyContent: 'center', display: 'flex' }}
-      >
-        {/* Geolocation warnings / guard-ish UX (hard enforcement happens at button) */}
-        {permissionState !== 'granted' && (
-          <div
-            className="glass-card"
-            style={{
-              background: 'rgba(30, 30, 30, 0.92)',
-              color: '#ff7070',
-              border: '1.5px solid #ff7070',
-              fontWeight: 'bold',
-              padding: 24,
-              textAlign: 'center',
-              maxWidth: 520,
-              minWidth: 320,
-              boxShadow: '0 6px 32px 0 rgba(0,0,0,0.4)',
-              fontSize: 18,
-              margin: '0 auto 18px',
-            }}
-          >
-            Location permission needed to clock in at {currentTrackName}.
-            <div style={{ marginTop: 12, fontSize: 15, color: '#fff', opacity: 0.8 }}>
-              Allow location access in your browser settings and refresh the page.
-              {geoError ? <div style={{ marginTop: 8, opacity: 0.8 }}>Error: {geoError}</div> : null}
-            </div>
-          </div>
-        )}
-
-        {coords && distanceToTrack !== null && distanceToTrack > (track?.radiusMeters || 300) ? (
-          <div
-            className="glass-card"
-            style={{
-              background: 'rgba(30,30,30,0.94)',
-              color: '#fff',
-              border: '2px solid #ffb020',
-              fontWeight: 'bold',
-              margin: '0 auto 24px auto',
-              padding: 24,
-              textAlign: 'center',
-              maxWidth: 520,
-              fontSize: 18,
-            }}
-          >
-            <span style={{ color: '#ffb020' }}>
-              You are not inside the {currentTrackName} geofence.
-            </span>
-            <br />
-            <br />
-            Move within {track?.radiusMeters || 300}m of the track to clock in/out.
-            <br />
-            <span style={{ fontSize: 15, opacity: 0.75 }}>
-              Current distance: {distanceToTrack} meters
-            </span>
-          </div>
-        ) : null}
-
-        {/* Main worker card */}
+      {bypassActive && <div className="bypass-banner">Geofence bypass enabled (dev mode)</div>}
+      <div className="main-wrapper" style={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', padding: 16 }}>
         <div className="glass-card" style={{ maxWidth: 820, width: '100%', padding: 20 }}>
-          {/* Role & Track Info + Progress */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginBottom: 16 }}>
-            <ProgressRing percent={percent} />
+          {/* Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <div style={{ fontWeight: 'bold', fontSize: 18, letterSpacing: 1 }}>
-                {role ? role.toUpperCase() : 'ROLE'}
-              </div>
-              <div style={{ color: '#48ff99', fontSize: 16, marginTop: 2 }}>{currentTrackName}</div>
-              <div style={{ fontSize: 13, opacity: 0.7, marginTop: 4 }}>
-                Geofence:{' '}
-                <strong style={{ color: isInsideFence ? 'lightgreen' : '#f88' }}>
-                  {isInsideFence ? 'Inside' : 'Outside'}
-                </strong>
-                {coords && track ? <> · ~{distanceToTrack}m away</> : null}
-              </div>
+              <h2>Welcome, {displayName || userData?.name || 'Worker'}!</h2>
+              <p style={{ color: '#48ff99', margin: 0 }}>{currentTrackName}</p>
+              <p style={{ margin: 0 }}>Staff on duty: {staffCount}</p>
+              {isClockedIn && clockInTime && (
+                <p style={{ margin: 0, color: '#24ff98' }}>Clocked in since {clockInTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({clockDuration})</p>
+              )}
             </div>
+            <ProgressRing percent={percent} />
           </div>
 
-          <h2 style={{ marginTop: 4, marginBottom: 12 }}>
-            Welcome, {displayName || userData?.name || 'Worker'}!
-          </h2>
+          {/* Announcements */}
+          {announcements.length > 0 && (
+            <div style={{ marginTop: 20 }}>
+              <h3>Announcements</h3>
+              {announcements.map(a => (
+                <div key={a.id} style={{ padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                  <strong>{a.title}</strong>
+                  <div style={{ fontSize: 14, opacity: 0.8 }}>{a.message}</div>
+                </div>
+              ))}
+            </div>
+          )}
 
-          <h3>Today's Tasks</h3>
+          {/* Tasks */}
+          <h3 style={{ marginTop: 20 }}>Today's Tasks</h3>
           {tasks.length === 0 ? (
-            <p>No tasks found for your track/role.</p>
+            <p>No tasks found.</p>
           ) : (
             <ul>
-              {tasks
-                .filter((task) => !completedTaskNames.includes(task.name))
-                .map((task) => (
-                  <li key={task.id || task.name} style={{ margin: '16px 0', fontSize: 18 }}>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={false}
-                        onChange={() => handleTaskCheck(task.name)}
-                      />{' '}
-                      {task.name}
-                    </label>
-                  </li>
-                ))}
+              {tasks.filter(t => !completedTaskNames.includes(t.name)).map(t => (
+                <li key={t.id || t.name} style={{ margin: '10px 0' }}>
+                  <label>
+                    <input type="checkbox" onChange={() => handleTaskCheck(t.name)} /> {t.name}
+                  </label>
+                </li>
+              ))}
             </ul>
           )}
-          {tasks.filter((t) => !completedTaskNames.includes(t.name)).length === 0 && tasks.length > 0 && (
-            <p style={{ color: '#24ff98', marginTop: 10, fontWeight: 500 }}>All tasks complete!</p>
+          {completedTaskNames.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <h4>Completed Today</h4>
+              <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+                {completedTaskNames.map((t, i) => <li key={i} style={{ color: '#48ff99' }}>{t}</li>)}
+              </ul>
+            </div>
           )}
 
-          {/* Task History (Today) */}
-          <div style={{ marginTop: 30 }}>
-            <h4 style={{ margin: 0, color: '#aaa' }}>Today’s Completed Tasks</h4>
-            {completedTaskNames.length === 0 ? (
-              <p style={{ color: '#bbb' }}>No tasks completed yet.</p>
-            ) : (
-              <ul style={{ margin: '10px 0 0 0', padding: 0, listStyle: 'none' }}>
-                {completedTaskNames.map((task, idx) => (
-                  <li key={idx} style={{ color: '#48ff99', marginBottom: 4 }}>
-                    {task}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+      
 
-          {/* Clock In/Out Section */}
-          <div style={{ marginTop: 30, textAlign: 'center' }}>
-            <button
-              className="button-primary"
-              style={{
-                padding: '12px 32px',
-                fontSize: 18,
-                borderRadius: 14,
-                fontWeight: 600,
-                background: isClockedIn ? '#232e1f' : '#215b37',
-                color: '#fff',
-                border: 'none',
-                opacity: busyClock ? 0.7 : 1,
-                cursor: busyClock ? 'not-allowed' : 'pointer',
-                boxShadow: '0 2px 12px 0 rgba(0,0,0,0.14)',
-              }}
-              disabled={busyClock}
-              onClick={handleClockButton}
-            >
-              {isClockedIn ? 'Clock Out' : 'Clock In'}
-            </button>
-            <div
-              style={{
-                marginTop: 14,
-                color: isClockedIn ? '#24ff98' : '#fff',
-                fontWeight: 500,
-                fontSize: 17,
-              }}
-            >
-              {clockStatusMsg || (isClockedIn ? 'You are clocked in' : 'You are not clocked in')}
-            </div>
-          </div>
-
-          {/* View Task History Button */}
+          {/* View history */}
           <div style={{ marginTop: 24, textAlign: 'center' }}>
-            <button
-              className="button-primary"
-              onClick={() => navigate('/task-history')}
-              style={{ width: 180, fontSize: 15, borderRadius: 10 }}
-            >
+            <button className="button-primary" onClick={() => navigate('/task-history')} style={{ width: 180 }}>
               View Task History
             </button>
           </div>

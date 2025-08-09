@@ -8,18 +8,32 @@ export function useStaffOnDuty() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const q = query(collection(db, 'users'), where('isClockedIn', '==', true));
+    const q = query(
+      collection(db, 'timeEntries'),
+      where('status', '==', 'in')
+    );
+
     const unsub = onSnapshot(q, (snap) => {
-      const map = {};
+      const grouped = {};
+
       snap.forEach((doc) => {
-        const u = doc.data();
-        const track = u.assignedTrack || 'Unassigned';
-        if (!map[track]) map[track] = [];
-        map[track].push({ id: doc.id, ...u });
+        const data = doc.data();
+        const trackId = data.trackId || '';
+        if (!trackId) return;
+
+        // Store everything in lowercase for consistent lookup
+        const key = trackId.trim().toLowerCase();
+
+        if (!grouped[key]) {
+          grouped[key] = [];
+        }
+        grouped[key].push({ id: doc.id, ...data });
       });
-      setByTrack(map);
+
+      setByTrack(grouped);
       setLoading(false);
     });
+
     return () => unsub();
   }, []);
 
