@@ -1,82 +1,14 @@
-/* src/components/TopNav.css */
+/* src/components/TopNav.css  — merged & mobile‑fixed */
 
 .topnav {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 8px 16px;
-  background: var(--glass-bg); /* comes from theme.css */
+  background: var(--glass-bg); /* from theme.css */
   backdrop-filter: blur(8px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.logo-text {
-  color: #48ff99;
-  font-size: 1.2rem;
-  font-weight: 700;
-}
-
-.middle {
-  display: flex;
-  flex-wrap: wrap; /* allow buttons to move to next line */
-  gap: 8px;
-  justify-content: center;
-  flex: 1; /* take available space but allow logout button to stay visible */
-  min-width: 200px;
-}
-
-.nav-btn,
-.nav-button {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 4px 10px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  font-family: 'Inter', sans-serif !important;
-  transition: all 0.2s ease;
-}
-
-.nav-btn:hover,
-.nav-button:hover {
-  background: #48ff99;
-  color: #000;
-}
-
-.logout-btn {
-  background-color: #ff4d4d;
-  color: #fff;
-  border: none;
-  padding: 6px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-weight: 700;
-  font-family: 'Inter', sans-serif !important;
-  flex-shrink: 0; /* prevent it from getting squished */
-}
-
-.logout-btn:hover {
-  background-color: #e60000;
-}
-
-/* src/components/TopNav.css additions */
-.top-nav {
-  display: flex;
-  flex-wrap: wrap;            /* allows wrapping when space is tight */
-}
-
-.middle {
-  display: flex;
-  flex-wrap: wrap;            /* menu can wrap to next line */
-  gap: 8px;
-  justify-content: center;
-  flex: 1;                    /* take remaining space */
-  min-width: 200px;
-}
-
-.logout-btn {
-  flex-shrink: 0;             /* never squish or push off-screen */
+  -webkit-text-size-adjust: 100%; /* prevent iOS zooming nav text */
 }
 
 .topnav .left,
@@ -86,6 +18,101 @@
   gap: 8px;
 }
 
-.topnav .right {
-  margin-left: auto;
+.topnav .right { margin-left: auto; }
+
+.logo-text {
+  color: #48ff99;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+/* ---- CENTER STRIP: keeps buttons in one row and scrolls on mobile ---- */
+.center {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.nav-scroll {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 4px;      /* tiny space for iOS shadow */
+}
+.nav-scroll::-webkit-scrollbar { display: none; }
+
+/* (Legacy) middle block kept for compatibility if your JSX still uses it.
+   We normalize it to behave like the new center strip. */
+.middle {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.middle::-webkit-scrollbar { display: none; }
+
+/* ---- BUTTONS: make ALL buttons identical height/shape (incl. Profile/Logout) ---- */
+.nav-btn,
+.nav-button,
+.logout-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  height: 36px;            /* identical height across devices */
+  padding: 0 12px;         /* same side padding */
+  font-size: 0.9rem;
+  line-height: 1;          /* prevents tall buttons on iOS */
+  white-space: nowrap;     /* keep to one line */
+  word-break: keep-all;
+
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+  color: #e9fef5;
+
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+  font-family: 'Inter', sans-serif !important;
+}
+
+/* Hover + active to match your glass look */
+.nav-btn:hover,
+.nav-button:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.05);
+}
+.nav-btn.active,
+.nav-button.active {
+  border-color: #24ff98;
+  box-shadow: 0 0 0 1px #24ff98;
+}
+
+/* Keep logout red but same dimensions/shape */
+.logout-btn {
+  background-color: #ff4d4d;
+  color: #fff;
+  font-weight: 700;
+  flex-shrink: 0; /* never squish */
+  border: none;   /* if you prefer borderless red button */
+}
+.logout-btn:hover {
+  background-color: #e60000;
+}
+
+/* Slightly tighter on very small screens */
+@media (max-width: 420px) {
+  .nav-btn,
+  .nav-button,
+  .logout-btn {
+    height: 34px;
+    padding: 0 10px;
+    font-size: 0.85rem;
+  }
 }
