@@ -22,45 +22,34 @@ import { useGeofence } from './hooks/useGeofence';
 import TRACKS from './constants/tracks';
 import { haversineDistanceMeters } from './utils/geo';
 
-function ProgressRing({ percent }) {
-  const radius = 32;
-  const stroke = 6;
-  const normalizedRadius = radius - stroke * 0.5;
-  const circumference = normalizedRadius * 2 * Math.PI;
-  const strokeDashoffset = circumference - (percent / 100) * circumference;
+// --- New: slim horizontal progress bar ---
+function ProgressBar({ percent = 0, trackColor = '#4a4a4a', fillColor = '#24ff98', height = 16 }) {
+  const v = Math.max(0, Math.min(100, Math.round(percent)));
   return (
-    <svg height={radius * 2} width={radius * 2}>
-      <circle
-        stroke="#232e1f"
-        fill="transparent"
-        strokeWidth={stroke}
-        r={normalizedRadius}
-        cx={radius}
-        cy={radius}
+    <div
+      style={{
+        width: '100%',
+        background: trackColor,
+        borderRadius: 999,
+        height,
+        position: 'relative',
+        boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.05)'
+      }}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={v}
+      role="progressbar"
+    >
+      <div
+        style={{
+          width: `${v}%`,
+          height: '100%',
+          background: fillColor,
+          borderRadius: 999,
+          transition: 'width .35s ease'
+        }}
       />
-      <circle
-        stroke="#24ff98"
-        fill="transparent"
-        strokeWidth={stroke}
-        strokeLinecap="round"
-        strokeDasharray={circumference + ' ' + circumference}
-        style={{ strokeDashoffset, transition: 'stroke-dashoffset 0.5s' }}
-        r={normalizedRadius}
-        cx={radius}
-        cy={radius}
-      />
-      <text
-        x="50%"
-        y="54%"
-        textAnchor="middle"
-        fill="#fff"
-        fontSize="18px"
-        fontWeight="bold"
-        dy="0.3em"
-      >
-        {percent}%
-      </text>
-    </svg>
+    </div>
   );
 }
 
@@ -140,7 +129,7 @@ export default function WorkerDashboard() {
     return () => { cancelled = true; };
   }, [user, assignedTrack, role]);
 
-  const percent = tasks.length === 0 ? 0 : Math.round((completedTaskNames.length / tasks.length) * 100);
+  const tasksPercent = tasks.length === 0 ? 0 : Math.round((completedTaskNames.length / tasks.length) * 100);
   async function handleTaskCheck(taskName) {
     if (!user || completedTaskNames.includes(taskName)) return;
     await addDoc(collection(db, 'users', user.uid, 'completedTasks'), {
@@ -170,7 +159,7 @@ export default function WorkerDashboard() {
   // --- My clock-in time (live) ---
   const [clockInTime, setClockInTime] = useState(null);
   useEffect(() => {
-    if (!isClockedIn) { setClockInTime(null); return; }
+    if (!isClockedIn || !user?.uid) { setClockInTime(null); return; }
     const qMyOpen = query(
       collection(db, 'timeEntries'),
       where('uid', '==', user.uid),
@@ -182,23 +171,30 @@ export default function WorkerDashboard() {
       if (!snap.empty) {
         const data = snap.docs[0].data();
         setClockInTime(data.clockInAt?.toDate() || null);
+      } else {
+        setClockInTime(null);
       }
     });
     return () => unsub();
   }, [isClockedIn, user]);
 
-  const clockDuration = useMemo(() => {
-    if (!clockInTime) return '';
-    const diffMs = Date.now() - clockInTime.getTime();
-    const h = Math.floor(diffMs / 3600000);
-    const m = Math.floor((diffMs % 3600000) / 60000);
-    return `${h}h ${m}m`;
-  }, [clockInTime, Date.now()]); // Date.now() will force re-render if we tie to interval
-  useEffect(() => {
-    if (!clockInTime) return;
-    const t = setInterval(() => { }, 60000); // triggers rerender via state change
-    return () => clearInterval(t);
-  }, [clockInTime]);
+  // --- Shift progress (assume 8h unless userData.shiftMinutes provided) ---
+  const shiftMinutes = Number.isFinite(userData?.shiftMinutes) ? userData.shiftMinutes : 480; // 8h default
+  const shiftPercent = useMemo(() => {
+    if (!clockInTime) return 0;
+    const elapsedMin = Math.max(0, Math.floor((Date.now() - clockInTime.getTime()) / 60000));
+    const pct = (elapsedMin / Math.max(1, shiftMinutes)) * 100;
+    return Math.max(0, Math.min(100, Math.round(pct)));
+  }, [clockInTime, shiftMinutes]);
+
+  // --- Geofence proximity percent (100% when inside radius) ---
+  const proximityPercent = useMemo(() => {
+    if (!track || distanceToTrack == null) return 0;
+    const radius = track?.radiusMeters || 300;
+    if (insideFenceOrBypass) return 100;
+    const pct = 100 - Math.min(100, Math.round((distanceToTrack / radius) * 100));
+    return Math.max(0, pct);
+  }, [track, distanceToTrack, insideFenceOrBypass]);
 
   // --- Announcements ---
   const [announcements, setAnnouncements] = useState([]);
@@ -210,7 +206,7 @@ export default function WorkerDashboard() {
     return () => unsub();
   }, []);
 
-  // --- Clock in/out ---
+  // --- Clock in/out (kept, but you already removed the button from this page UI) ---
   const [busyClock, setBusyClock] = useState(false);
   async function handleClockButton() {
     if (!user) return;
@@ -254,16 +250,50 @@ export default function WorkerDashboard() {
       <div className="main-wrapper" style={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', padding: 16 }}>
         <div className="glass-card" style={{ maxWidth: 820, width: '100%', padding: 20 }}>
           {/* Header */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
             <div>
-              <h2>Welcome, {displayName || userData?.name || 'Worker'}!</h2>
+              <h2 style={{ marginTop: 0 }}>Welcome, {displayName || userData?.name || 'Worker'}!</h2>
               <p style={{ color: '#48ff99', margin: 0 }}>{currentTrackName}</p>
               <p style={{ margin: 0 }}>Staff on duty: {staffCount}</p>
               {isClockedIn && clockInTime && (
-                <p style={{ margin: 0, color: '#24ff98' }}>Clocked in since {clockInTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({clockDuration})</p>
+                <p style={{ margin: 0, color: '#24ff98' }}>
+                  On shift since {clockInTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
               )}
             </div>
-            <ProgressRing percent={percent} />
+
+            {/* New: Progress bars panel */}
+            <div style={{ width: 280, minWidth: 240, flex: '0 0 280px' }}>
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 12, marginBottom: 6, opacity: 0.85, display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Tasks completion</span><span>{tasksPercent}%</span>
+                </div>
+                <ProgressBar percent={tasksPercent} fillColor="#3ed37e" />
+              </div>
+
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 12, marginBottom: 6, opacity: 0.85, display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Shift progress</span>
+                  <span>
+                    {isClockedIn && clockInTime ? `${shiftPercent}%` : '—'}
+                  </span>
+                </div>
+                <ProgressBar
+                  percent={isClockedIn && clockInTime ? shiftPercent : 0}
+                  fillColor="#ffb266"
+                />
+              </div>
+
+              <div>
+                <div style={{ fontSize: 12, marginBottom: 6, opacity: 0.85, display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Proximity to gate</span>
+                  <span>
+                    {proximityPercent}%
+                  </span>
+                </div>
+                <ProgressBar percent={proximityPercent} fillColor="#f3a4ad" />
+              </div>
+            </div>
           </div>
 
           {/* Announcements */}
@@ -302,8 +332,6 @@ export default function WorkerDashboard() {
               </ul>
             </div>
           )}
-
-      
 
           {/* View history */}
           <div style={{ marginTop: 24, textAlign: 'center' }}>
