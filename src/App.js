@@ -1,8 +1,15 @@
 // src/App.js
 import React from 'react';
+import SafetyChecklistPage from './pages/SafetyChecklistPage';
+import SafetyReviewPage from './pages/SafetyReviewPage';
+
+
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import AdminDashboard from './AdminDashboard';
 import WorkerDashboard from './WorkerDashboard';
+
+import HRFinancePage from './pages/HRFinancePage';
+
 import { AuthProvider, useAuth } from './AuthContext';
 import LoginPage from './LoginPage';
 import TrackDetailsPage from './TrackDetailsPage'; // ✅ ADDED
@@ -84,7 +91,11 @@ function App() {
               </ProtectedRoute>
             }
           />
-        </Routes>
+          <Route path="/safety-checklist" element={<SafetyChecklistPage />} />
+  <Route path="/safety-review" element={<SafetyReviewPage />} />
+  <Route path="/hr-finance" element={<HRFinancePage />} />
+</Routes>
+
       </Router>
     </AuthProvider>
   );
