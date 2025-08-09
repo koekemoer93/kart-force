@@ -1,75 +1,48 @@
 // src/services/timeEntries.js
-import {
-  addDoc,
-  collection,
-  doc,
-  getDocs,
-  limit,
-  query,
-  serverTimestamp,
-  updateDoc,
-  where,
-  orderBy,
-} from 'firebase/firestore';
+import { addDoc, collection, doc, getDocs, query, updateDoc, where, serverTimestamp, orderBy, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 
-const USERS = (uid) => doc(db, 'users', uid);
-const TIME_ENTRIES = collection(db, 'timeEntries');
-
+// Create (clock in)
 export async function clockIn({ uid, trackId }) {
-  // Create a time entry with clockInAt and set user isClockedIn true
-  // First, ensure the user is not already clocked in (no open entry)
-  const openQ = query(
-    TIME_ENTRIES,
+  // Ensure no open entry exists (optional safeguard)
+  const qOpen = query(
+    collection(db, 'timeEntries'),
     where('uid', '==', uid),
     where('clockOutAt', '==', null),
     orderBy('clockInAt', 'desc'),
     limit(1)
   );
-  const snap = await getDocs(openQ);
-  if (!snap.empty) {
-    throw new Error('Already clocked in. Please clock out first.');
-  }
+  const snap = await getDocs(qOpen);
+  if (!snap.empty) return; // already clocked in
 
-  await addDoc(TIME_ENTRIES, {
-    uid,
-    trackId,
+  await addDoc(collection(db, 'timeEntries'), {
+    uid,                      // <<<<<<<<<< must exist and equal auth uid (rules check this)
+    trackId: trackId || null,
+    status: 'in',
     clockInAt: serverTimestamp(),
     clockOutAt: null,
-    durationSec: null,
-  });
-
-  await updateDoc(USERS(uid), {
-    isClockedIn: true,
-    lastClockIn: serverTimestamp(),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   });
 }
 
+// Update (clock out)
 export async function clockOut({ uid }) {
-  // Find the latest open entry for this uid
-  const openQ = query(
-    TIME_ENTRIES,
+  // find latest open entry for this uid
+  const qOpen = query(
+    collection(db, 'timeEntries'),
     where('uid', '==', uid),
     where('clockOutAt', '==', null),
     orderBy('clockInAt', 'desc'),
     limit(1)
   );
-  const snap = await getDocs(openQ);
-  if (snap.empty) {
-    throw new Error('No open time entry found.');
-  }
-  const entryDoc = snap.docs[0];
-  const startedAt = entryDoc.get('clockInAt')?.toDate?.() ?? new Date();
+  const snap = await getDocs(qOpen);
+  if (snap.empty) return;
 
-  const end = new Date();
-  const durationSec = Math.max(0, Math.floor((end.getTime() - startedAt.getTime()) / 1000));
-
-  await updateDoc(entryDoc.ref, {
-    clockOutAt: end,
-    durationSec,
-  });
-
-  await updateDoc(USERS(uid), {
-    isClockedIn: false,
+  const docRef = doc(db, 'timeEntries', snap.docs[0].id);
+  await updateDoc(docRef, {
+    status: 'out',
+    clockOutAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   });
 }

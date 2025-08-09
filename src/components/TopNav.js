@@ -33,6 +33,7 @@ const TopNav = ({ role }) => {
   const workerButtons = [
     { label: 'Worker Dashboard', path: '/worker-dashboard' },
     { label: 'Apply for Leave', path: '/request-leave' },
+    { label: 'Clock In/Out', path: '/clock' }, // NEW: routes to the Clock page
     // You can add { label: 'Clock Out', path: '/clock-out' } after we add that page
   ];
 

@@ -15,6 +15,8 @@ import StockRoom from './pages/StockRoom';
 import SupplyRequest from './pages/SupplyRequest';
 import SeedAllHours from "./pages/SeedAllHours";
 import AdminTaskCreator from './pages/AdminTaskCreator';
+import Clock from './pages/Clock';
+
 
 
 
@@ -56,6 +58,14 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+  path="/clock"
+  element={
+    <ProtectedRoute roleRequired="worker">
+      <Clock />
+    </ProtectedRoute>
+  }
+/>
 
           <Route
             path="/worker-dashboard"

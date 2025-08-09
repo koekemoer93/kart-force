@@ -276,3 +276,20 @@ img { max-width: 100%; height: auto; }
     min-height: unset;
   }
 }
+
+/* --- Dev geofence bypass banner --- */
+.bypass-banner {
+  position: fixed;
+  z-index: 9999;
+  bottom: 12px;
+  left: 12px;
+  font-size: 12px;
+  line-height: 1;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: #ff8c00;           /* orange pill */
+  color: #121212;                 /* dark theme compatible text */
+  box-shadow: 0 6px 24px rgba(0,0,0,0.45);
+  opacity: 0.95;
+  pointer-events: none;           /* don't block taps/clicks */
+}

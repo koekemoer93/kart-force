@@ -16,9 +16,9 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);          // Firebase Auth user
   const [role, setRole] = useState(null);          // 'admin' | 'worker' | null
   const [profile, setProfile] = useState(null);    // Firestore user doc data
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true);    // loading Firestore user doc
 
-  // Ensure Firestore user doc exists with required fields
+  // Ensure Firestore user doc exists with required fields (normalized shape)
   const ensureUserDoc = async (authUser) => {
     if (!authUser) return;
 
@@ -26,25 +26,29 @@ export const AuthProvider = ({ children }) => {
     const snap = await getDoc(userRef);
 
     if (!snap.exists()) {
-      // Create minimal doc — you can edit Billy’s role here or in Firestore
       const newDoc = {
         uid: authUser.uid,
         email: authUser.email || '',
         displayName: authUser.displayName || '',
         photoURL: authUser.photoURL || '',
-        role: 'worker', // default; set 'admin' manually for owner accounts (e.g., Billy)
+        role: 'worker',              // default (set to 'admin' manually for owner accounts)
+        assignedTrack: '',           // normalized field so UI never sees undefined
+        isClockedIn: false,          // normalized field used by clock
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
       await setDoc(userRef, newDoc);
       return newDoc;
     } else {
-      // Patch any missing keys to keep shape consistent
+      // Patch missing keys to keep the document shape consistent
       const data = snap.data();
       const updates = {};
       if (data.role == null) updates.role = 'worker';
       if (data.displayName == null) updates.displayName = authUser.displayName || '';
       if (data.photoURL == null) updates.photoURL = authUser.photoURL || '';
+      if (data.assignedTrack == null) updates.assignedTrack = '';
+      if (data.isClockedIn == null) updates.isClockedIn = false;
+
       if (Object.keys(updates).length) {
         updates.updatedAt = serverTimestamp();
         await updateDoc(userRef, updates);
@@ -58,7 +62,9 @@ export const AuthProvider = ({ children }) => {
       try {
         if (authUser) {
           const ensured = await ensureUserDoc(authUser);
-          const effective = ensured || (await getDoc(doc(db, 'users', authUser.uid))).data();
+          const effective =
+            ensured || (await getDoc(doc(db, 'users', authUser.uid))).data();
+
           setUser(authUser);
           setProfile(effective);
           setRole(effective?.role ?? null);
@@ -70,7 +76,7 @@ export const AuthProvider = ({ children }) => {
           ) {
             await updateProfile(authUser, {
               displayName: effective.displayName || authUser.displayName || '',
-              photoURL: effective.photoURL || authUser.photoURL || ''
+              photoURL: effective.photoURL || authUser.photoURL || '',
             });
           }
         } else {
@@ -88,6 +94,23 @@ export const AuthProvider = ({ children }) => {
     return () => unsub();
   }, []);
 
-  const value = { user, role, profile, loading };
+  // Convenience: consistent display name
+  const resolvedDisplayName =
+    profile?.displayName ||
+    user?.displayName ||
+    (user?.email ? user.email.split('@')[0] : '') ||
+    '';
+
+  // ✅ Back-compat aliases for the rest of the app
+  const value = {
+    user,
+    role,
+    profile,                 // Firestore user doc
+    loading,                 // profile loading
+    userData: profile,       // alias used elsewhere
+    userDataLoading: loading, // alias used elsewhere
+    displayName: resolvedDisplayName,
+  };
+
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
