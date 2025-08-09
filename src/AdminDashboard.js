@@ -379,6 +379,36 @@ useEffect(() => {
   setTracksOpenNow(count);
 }, [trackHours]);
 
+// ✅ Derive "Tracks Open" using normalized hours when available; fall back to trackDocs meta.isOpen
+useEffect(() => {
+  const now = new Date();
+  let count = 0;
+
+  Object.keys(TRACKS).forEach((uiKey) => {
+    const firestoreKey = TRACKS[uiKey]?.id || uiKey;
+
+    const normalized = (trackHours && (trackHours[firestoreKey] || trackHours[uiKey])) || null;
+    if (normalized) {
+      // Preferred: normalized hours + isOpenNow
+      if (isOpenNow(normalized, now)) count += 1;
+      return;
+    }
+
+    // Fallback: use the meta we already computed for the cards
+    const meta = trackDocs[uiKey];
+    if (meta && typeof meta.isOpen === 'boolean') {
+      if (meta.isOpen) count += 1;
+      return;
+    }
+
+    // If nothing available, assume closed for now
+  });
+
+  setTracksOpenNow((prev) => (prev !== count ? count : prev));
+}, [trackHours, trackDocs]);
+
+
+
 
   // FIX: match duty counts by id, firestore id, and case-insensitive match
   const getDutyCount = (uiKey) => {

@@ -35,7 +35,6 @@ const TopNav = ({ role }) => {
     { label: 'H&S Review', path: '/safety-review' },
     { label: 'HR & Finance', path: '/hr-finance' }, // admin-only
     { label: 'Stock Room', path: '/stockroom' },    // adjust if your route differs
-  
   ];
 
   const hrFinanceButtons = [
@@ -49,6 +48,7 @@ const TopNav = ({ role }) => {
     { label: 'Worker Dashboard', path: '/worker-dashboard' },
     { label: 'Clock In/Out', path: '/clock' }, // adjust if your route name differs
     { label: 'Apply for Leave', path: '/request-leave' },
+    { label: 'Request Stock', path: '/request-supplies' }, // 🔹 NEW BUTTON
     // Optionally later: { label: 'Safety Checklist', path: '/safety-checklist' }
   ];
 
