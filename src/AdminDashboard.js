@@ -7,30 +7,20 @@ import { db } from './firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { fetchTrackHoursRaw } from './services/tracks';
 import { normalizeWeeklyHours, isOpenNow } from './utils/hours';
+import { useAuth } from './AuthContext';
+import Avatar from './components/Avatar';
+import { useNavigate } from 'react-router-dom';
+
 
 /**
- * NOTE: This file is a full drop-in replacement.
- *
- * ✅ What changed (as requested):
- * 1) REMOVED the entire "Staff on Duty (Live)" column/card.
- * 2) ADDED a tiny circular badge next to each track name showing the number of
- *    clocked-in staff for that track (uses useStaffOnDuty live data).
- * 3) UPDATED "Tracks — Status & Progress" to span full width (forces grid span).
- * 4) PRESERVED hours logic (field /tracks/{id}.hours with fallback to /config/hours),
- *    progress bars, and the dark glassy style.
- *
- * No external CSS refactor; minimal inline styling for the tiny badge and grid span.
+ * Full drop-in replacement.
+ * - Welcome card now shows user display name + avatar
+ * - Staff-on-duty middle column removed (you asked earlier)
+ * - Tiny duty count badge on each track card
+ * - Hours/progress logic preserved
  */
 
-/**
- * Helpers: compute "open now" from hours (legacy compatibility)
- * Supports BOTH:
- *  - openingHours (your SeedHours.js writes this)
- *  - tradingHours (legacy shape)
- *
- * Firestore shape per day:
- * { open: "HH:MM", close: "HH:MM", closed?: boolean }
- */
+/** Helpers */
 function computeIsOpenFromHours(hours, now = new Date()) {
   if (!hours) return { isOpen: false, note: 'No hours set' };
 
@@ -74,20 +64,31 @@ function TrackProgressBar({ percent }) {
   );
 }
 
-
-
 export default function AdminDashboard() {
+  // Auth (for welcome card)
+  const { user, profile } = useAuth();
+  const navigate = useNavigate();
+
+  const displayName =
+    profile?.displayName ||
+    user?.displayName ||
+    (user?.email ? user.email.split('@')[0] : '') ||
+    'Admin';
+  const photoURL = profile?.photoURL || user?.photoURL || '';
+
+  // Staff on duty (live)
   const { byTrack, loading: loadingDuty } = useStaffOnDuty();
+
   const trackIds = useMemo(() => Object.keys(TRACKS), []);
-  const [trackDocs, setTrackDocs] = useState({}); // { [trackId]: { isOpen, note, completionPercent } }
+  const [trackDocs, setTrackDocs] = useState({});
   const [loadingTracks, setLoadingTracks] = useState(true);
 
   // Normalized hours loaded from /tracks/{id}.hours (FIELD) with fallback to /tracks/{id}/config/hours
-  const [trackHours, setTrackHours] = useState({}); // { [trackIdOrFirestoreId]: normalizedArrayOrNull }
+  const [trackHours, setTrackHours] = useState({});
   const [hoursLoading, setHoursLoading] = useState(false);
   const [hoursError, setHoursError] = useState(null);
 
-  // Fetch each track doc once (keeps your Firestore schema flexible)
+  // Fetch each track doc once
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -108,10 +109,7 @@ export default function AdminDashboard() {
             }
             const data = snap.data() || {};
 
-            // Determine open/closed with sensible priority:
-            // 1) explicit isOpen boolean (if you set it via a toggle)
-            // 2) openingHours (SeedHours.js) OR tradingHours (legacy)
-            // 3) default false
+            // Determine open/closed:
             let isOpen = false;
             let note = '';
             if (typeof data.isOpen === 'boolean') {
@@ -124,7 +122,7 @@ export default function AdminDashboard() {
               note = res.note;
             }
 
-            // Read progress percent (multiple shapes supported)
+            // Read progress percent
             const p =
               (data.progress && typeof data.progress.completionPercent === 'number'
                 ? data.progress.completionPercent
@@ -156,7 +154,7 @@ export default function AdminDashboard() {
     };
   }, [trackIds]);
 
-  // Load hours for every track on mount (FIELD hours with fallback to /config/hours)
+  // Load hours (field -> fallback /config/hours)
   useEffect(() => {
     let isMounted = true;
     async function loadAllHours() {
@@ -164,7 +162,7 @@ export default function AdminDashboard() {
         setHoursLoading(true);
         setHoursError(null);
 
-        const entries = Object.values(TRACKS); // [{id, displayName, ...}, ...]
+        const entries = Object.values(TRACKS);
         const results = await Promise.all(
           entries.map(async (t) => {
             const raw = await fetchTrackHoursRaw(t.id);
@@ -202,22 +200,40 @@ export default function AdminDashboard() {
     <>
       <TopNav role="admin" />
       <div className="main-wrapper admin-dashboard-layout">
-        {/* Welcome card (kept) */}
+        {/* Welcome card with avatar + name */}
         <div className="glass-card welcome-card">
-          <h2 style={{ marginTop: 0 }}>Welcome, Admin!</h2>
-          <p className="muted" style={{ marginBottom: 0 }}>
-            This is your live owner dashboard.
-          </p>
-        </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button
+  onClick={() => navigate('/profile')}
+  aria-label="Open profile"
+  title="Open profile"
+  style={{
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
+    border: 'none',
+    padding: 0,
+    cursor: 'pointer',
+    borderRadius: '50%',
+    outlineOffset: 2
+  }}
+>
+  <Avatar src={photoURL} alt={displayName} size={36} />
+</button>
 
-        {/* ================================================
-            REMOVED: Staff on Duty (Live) right column/card
-            ================================================ */}
+              <div>
+                <h2 style={{ margin: 0 }}>Welcome, {displayName}!</h2>
+                <p style={{ margin: '6px 0 0 0', opacity: 0.85 }}>This is your live owner dashboard.</p>
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* Tracks — Status & Progress (FULL WIDTH) */}
         <div
           className="glass-card progress-summary-card"
-          // Force full-width span regardless of parent grid template
           style={{ gridColumn: '1 / -1' }}
         >
           <h3 style={{ marginTop: 0 }}>Tracks — Status & Progress</h3>
@@ -229,20 +245,15 @@ export default function AdminDashboard() {
               {trackIds.map((id) => {
                 const t = TRACKS[id];
 
-                // meta from your existing Firestore doc fetch (fallback if hours missing)
                 const meta = trackDocs[id] || {
                   isOpen: false,
                   note: '',
                   completionPercent: 0,
                 };
 
-                // Map the UI key -> Firestore doc id used when we loaded hours
                 const trackKey = TRACKS[id]?.id || id;
-
-                // Prefer normalized hours we fetched (field hours -> fallback /config/hours)
                 const normalized = trackHours[trackKey];
 
-                // Build final status, preferring normalized hours. Fallback to meta.
                 let statusOpen = meta.isOpen;
                 let statusNote = meta.note || 'No hours set';
 
@@ -258,7 +269,6 @@ export default function AdminDashboard() {
                 const openClass = statusOpen ? 'dot-open' : 'dot-closed';
                 const percent = meta.completionPercent ?? 0;
 
-                // NEW: live clocked-in count (uses both keys to be safe)
                 const dutyCount = loadingDuty ? '…' : getDutyCount(id);
 
                 return (
@@ -267,7 +277,7 @@ export default function AdminDashboard() {
                       <div className="row between wrap gap12">
                         <div className="row gap12 center">
                           <span className={`dot ${openClass}`} />
-                          {/* Track name + tiny circular duty badge */}
+                          {/* Track name + tiny duty badge */}
                           <div className="row gap8 center">
                             <h4 className="track-name" style={{ margin: 0 }}>
                               {t?.displayName || id}
@@ -276,7 +286,18 @@ export default function AdminDashboard() {
                               className="duty-badge"
                               title="Clocked-in staff"
                               aria-label="Clocked-in staff"
-                      
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: 20,
+                                height: 20,
+                                borderRadius: '50%',
+                                fontSize: 12,
+                                fontWeight: 700,
+                                background: 'rgba(0,0,0,0.35)',
+                                border: '1px solid rgba(255,255,255,0.12)'
+                              }}
                             >
                               {dutyCount}
                             </span>
@@ -284,6 +305,9 @@ export default function AdminDashboard() {
                         </div>
                         <span className="small muted">{statusNote}</span>
                       </div>
+
+ 
+
 
                       <div style={{ marginTop: 10 }}>
                         <TrackProgressBar percent={percent} />
@@ -295,6 +319,58 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                 );
+
+function getTodayHoursString(normalized, now = new Date()) {
+  // normalized is the array from normalizeWeeklyHours()
+  try {
+    const dayIdx = now.getDay(); // 0=Sun
+    const today = normalized?.[dayIdx] || [];
+    if (!Array.isArray(today) || today.length === 0) return 'Closed today';
+
+    const parts = today.map(w => {
+      const s = w.start?.slice(0, 5) || '';
+      const e = w.end?.slice(0, 5) || '';
+      return `${s}–${e}`;
+    });
+    return parts.join(', ');
+  } catch {
+    return '';
+  }
+}
+
+function getNextChangeNote(normalized, now = new Date()) {
+  // Returns "Closes at HH:MM" or "Opens at HH:MM" or ''
+  try {
+    const dayIdx = now.getDay();
+    const tNow = now.toTimeString().slice(0, 5);
+
+    const today = normalized?.[dayIdx] || [];
+    const toMinutes = (hhmm) => {
+      const [h, m] = hhmm.split(':').map(Number);
+      return h * 60 + m;
+    };
+    const nowMin = toMinutes(tNow);
+
+    // Use your existing isOpenNow util
+    const open = isOpenNow(normalized, now);
+
+    if (open) {
+      // find current window end
+      const current = today.find(w => toMinutes(w.start) <= nowMin && nowMin < toMinutes(w.end));
+      if (!current) return '';
+      return `Closes at ${current.end.slice(0, 5)}`;
+    } else {
+      // find first future window today
+      const next = today.find(w => nowMin < toMinutes(w.start));
+      if (next) return `Opens at ${next.start.slice(0, 5)}`;
+      return ''; // (could extend logic to tomorrow if needed)
+    }
+  } catch {
+    return '';
+  }
+}
+
+
               })}
             </div>
           )}
