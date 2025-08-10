@@ -5,10 +5,11 @@ import TRACKS from '../constants/tracks';
 import HoursEditor from '../components/HoursEditor';
 import { emptyWeek, getOpeningHours, saveOpeningHours, isValidHM } from '../services/tracks';
 import { useAuth } from '../AuthContext';
+import { isAdmin, isWorkerLike } from './utils/roles';
 
 export default function HoursManager() {
   const { userData } = useAuth();
-  const isAdmin = userData?.role === 'admin';
+  const isAdmin = userData?.isAdmin(role);
 
   const trackKeys = Object.keys(TRACKS);
   const [hoursMap, setHoursMap] = useState({}); // { [trackKey]: hours }

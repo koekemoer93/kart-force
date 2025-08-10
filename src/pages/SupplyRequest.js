@@ -65,7 +65,7 @@ export default function SupplyRequest() {
 
   return (
     <>
-      <TopNav role={userData?.role || 'worker'} />
+      <TopNav />
       <div className="main-wrapper admin-dashboard-layout">
         <div className="glass-card" style={{ gridColumn: '1 / -1' }}>
           <h3 style={{ marginTop: 0 }}>Weekly Supply Request — {TRACKS[assignedTrack]?.displayName || canRequestFor}</h3>

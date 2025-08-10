@@ -5,6 +5,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, updateProfile } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
+import { isAdmin as isAdminFn, isWorkerLike as isWorkerLikeFn } from './utils/roles';
 
 const AuthContext = createContext(null);
 
@@ -12,9 +13,27 @@ export function useAuth() {
   return useContext(AuthContext);
 }
 
+// ---- Helpers ----
+const WORKER_LIKE_ROLES = [
+  'worker',
+  'mechanic',
+  'marshall',
+  'workshopmanager',
+  'assistantmanager',
+  'reception',
+];
+
+const ALLOWED_ROLES = ['admin', ...WORKER_LIKE_ROLES];
+
+function normalizeRole(input) {
+  if (!input) return null;
+  const r = String(input).trim().toLowerCase();
+  return ALLOWED_ROLES.includes(r) ? r : null;
+}
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);          // Firebase Auth user
-  const [role, setRole] = useState(null);          // 'admin' | 'worker' | null
+  const [role, setRole] = useState(null);          // 'admin' | worker-like | null (all lowercase)
   const [profile, setProfile] = useState(null);    // Firestore user doc data
   const [loading, setLoading] = useState(true);    // loading Firestore user doc
 
@@ -31,9 +50,9 @@ export const AuthProvider = ({ children }) => {
         email: authUser.email || '',
         displayName: authUser.displayName || '',
         photoURL: authUser.photoURL || '',
-        role: 'worker',              // default (set to 'admin' manually for owner accounts)
-        assignedTrack: '',           // normalized field so UI never sees undefined
-        isClockedIn: false,          // normalized field used by clock
+        role: 'worker',              // default
+        assignedTrack: '',
+        isClockedIn: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
@@ -65,19 +84,29 @@ export const AuthProvider = ({ children }) => {
           const effective =
             ensured || (await getDoc(doc(db, 'users', authUser.uid))).data();
 
+          // Normalize role here (lowercase + trim + validate)
+          const normalized = normalizeRole(effective?.role);
+          setRole(normalized);
+
           setUser(authUser);
           setProfile(effective);
-          setRole(effective?.role ?? null);
 
           // Keep Auth displayName/photo in sync if Firestore has them
-          if (
+          const wantsDisplay = effective?.displayName || authUser.displayName || '';
+          const wantsPhoto = effective?.photoURL || authUser.photoURL || '';
+          const shouldSync =
             (effective?.displayName && authUser.displayName !== effective.displayName) ||
-            (effective?.photoURL && authUser.photoURL !== effective.photoURL)
-          ) {
-            await updateProfile(authUser, {
-              displayName: effective.displayName || authUser.displayName || '',
-              photoURL: effective.photoURL || authUser.photoURL || '',
-            });
+            (effective?.photoURL && authUser.photoURL !== effective.photoURL);
+
+          if (shouldSync) {
+            try {
+              await updateProfile(authUser, {
+                displayName: wantsDisplay,
+                photoURL: wantsPhoto,
+              });
+            } catch (e) {
+              console.warn('Auth display sync failed (non-fatal):', e);
+            }
           }
         } else {
           setUser(null);
@@ -86,6 +115,10 @@ export const AuthProvider = ({ children }) => {
         }
       } catch (e) {
         console.error('AuthContext error:', e);
+        // On error, at least prevent infinite loading UI
+        setUser(null);
+        setProfile(null);
+        setRole(null);
       } finally {
         setLoading(false);
       }
@@ -101,14 +134,28 @@ export const AuthProvider = ({ children }) => {
     (user?.email ? user.email.split('@')[0] : '') ||
     '';
 
-  // ✅ Back-compat aliases for the rest of the app
+  // ✅ Use helpers to compute booleans (rename to avoid shadowing)
+  const admin = isAdminFn(role);
+  const workerLike = isWorkerLikeFn(role);
+
+  // ✅ Context value: expose both functions and booleans
   const value = {
     user,
-    role,
-    profile,                 // Firestore user doc
-    loading,                 // profile loading
-    userData: profile,       // alias used elsewhere
-    userDataLoading: loading, // alias used elsewhere
+    role,                      // normalized, lowercase
+    profile,                   // Firestore user doc
+    loading,                   // profile loading
+
+    // Functions (helpers)
+    isAdmin: isAdminFn,
+    isWorkerLike: isWorkerLikeFn,
+
+    // Convenient booleans
+    admin,
+    workerLike,
+
+    // Back-compat aliases used elsewhere
+    userData: profile,
+    userDataLoading: loading,
     displayName: resolvedDisplayName,
   };
 

@@ -1,6 +1,4 @@
 // src/pages/Clock.js
-// ⬇️ Paste this entire file
-
 import React, { useEffect, useMemo, useState } from 'react';
 import TopNav from '../components/TopNav';
 import { useAuth } from '../AuthContext';
@@ -31,14 +29,12 @@ function formatHHmm(date) {
 }
 
 export default function Clock() {
-  const { user, userData } = useAuth();
+  const { user, userData, role } = useAuth();
   const uid = user?.uid;
   const assignedTrack = userData?.assignedTrack ?? null;
   const isClockedInFlag = !!userData?.isClockedIn;
 
   // --- DEV BYPASS SETUP ----------------------------------------------------
-  // Allow bypass in dev OR if you explicitly allow it via env on staging:
-  // REACT_APP_ALLOW_BYPASS=true
   const allowBypass =
     process.env.NODE_ENV !== 'production' ||
     String(process.env.REACT_APP_ALLOW_BYPASS).toLowerCase() === 'true';
@@ -48,7 +44,6 @@ export default function Clock() {
     typeof window !== 'undefined' &&
     window.localStorage.getItem('bypassFence') === 'true';
 
-  // Optional: Shift+G toggles the bypass quickly in dev/staging
   useEffect(() => {
     if (!allowBypass) return;
     const onKey = (e) => {
@@ -63,15 +58,13 @@ export default function Clock() {
   }, [allowBypass]);
   // ------------------------------------------------------------------------
 
-  // Geofence (call UNCONDITIONALLY to keep hook order correct)
+  // Geofence
   const { coords, isInsideFence, permissionState, error: geoError, track } =
     useGeofence(assignedTrack);
 
-  // When bypass is active, we "treat" the user as inside the fence.
   const insideFenceOrBypass = bypassActive ? true : isInsideFence;
 
-  // Open entry (if any)
-  const [openEntry, setOpenEntry] = useState(null); // { id, clockInAt: Timestamp, ... }
+  const [openEntry, setOpenEntry] = useState(null);
   const [loadingEntry, setLoadingEntry] = useState(true);
   const [busy, setBusy] = useState(false);
 
@@ -83,7 +76,7 @@ export default function Clock() {
       setLoadingEntry(true);
       const qOpen = query(
         collection(db, 'timeEntries'),
-        where('uid', '==', uid),                 // ✅ your code uses `uid` field
+        where('uid', '==', uid),
         where('clockOutAt', '==', null),
         orderBy('clockInAt', 'desc'),
         limit(1)
@@ -109,7 +102,6 @@ export default function Clock() {
       return;
     }
 
-    // Geofence enforcement — allow bypass to skip this guard
     if (!insideFenceOrBypass) {
       alert(`You must be at ${currentTrackName} to clock in/out.`);
       return;
@@ -120,14 +112,12 @@ export default function Clock() {
       if (openEntry) {
         await clockOut({ uid });
       } else {
-        // Pass assigned track as before
         await clockIn({ uid, trackId: assignedTrack });
       }
     } catch (e) {
       alert(e?.message || 'Clock action failed.');
     } finally {
       setBusy(false);
-      // Refresh open entry status
       try {
         const qOpen = query(
           collection(db, 'timeEntries'),
@@ -142,14 +132,12 @@ export default function Clock() {
     }
   }
 
-  // Format "Clocked in at 08:16"
   const clockedInAtText = useMemo(() => {
     if (!openEntry?.clockInAt) return '';
     const started = openEntry.clockInAt?.toDate ? openEntry.clockInAt.toDate() : new Date(openEntry.clockInAt);
     return formatHHmm(started);
   }, [openEntry]);
 
-  // Distance helper (nice UX)
   const distanceInfo = (() => {
     if (!coords || !track) return null;
     const toRad = (deg) => (deg * Math.PI) / 180;
@@ -165,9 +153,9 @@ export default function Clock() {
 
   return (
     <>
-      <TopNav role="worker" />
+      {/* ✅ Let TopNav detect the correct role from AuthContext */}
+      <TopNav />
 
-      {/* Small orange dev banner when bypass is active */}
       {bypassActive && (
         <div className="bypass-banner" role="status" aria-live="polite">
           Geofence bypass enabled (dev mode)
@@ -178,7 +166,6 @@ export default function Clock() {
         <div className="glass-card" style={{ maxWidth: 560, width: '100%' }}>
           <h2 style={{ marginTop: 0 }}>Clock</h2>
 
-          {/* Info container */}
           <div
             className="glass-card"
             style={{
@@ -202,7 +189,6 @@ export default function Clock() {
               </div>
             )}
 
-            {/* If bypass is active, soften the permission error and don’t block the button */}
             {permissionState !== 'granted' && !bypassActive && (
               <div style={{ color: '#ff7070', marginTop: 8 }}>
                 Location permission is required. Enable location access for your browser and reload.
@@ -217,7 +203,6 @@ export default function Clock() {
             )}
           </div>
 
-          {/* Status line */}
           {loadingEntry ? (
             <p>Checking your clock status…</p>
           ) : openEntry ? (
@@ -228,12 +213,10 @@ export default function Clock() {
             <p style={{ marginTop: 0, opacity: 0.9 }}>You are not clocked in.</p>
           )}
 
-          {/* Big action button */}
           <div style={{ textAlign: 'center', marginTop: 12 }}>
             <button
               className="button-primary"
               onClick={handleClock}
-              // If bypass is active, do NOT disable the button due to permissions
               disabled={busy || (!bypassActive && permissionState !== 'granted')}
               style={{
                 padding: '14px 32px',

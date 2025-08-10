@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { db } from './firebase';
+import { db, } from './firebase';
 import { useAuth } from './AuthContext';
 import {
   collection,
@@ -9,6 +9,7 @@ import {
   orderBy,
   limit,
   doc,
+  getDoc,
   updateDoc,
   arrayUnion,
   arrayRemove
@@ -19,7 +20,6 @@ import { clockIn, clockOut } from './services/timeEntries';
 import { useGeofence } from './hooks/useGeofence';
 import TRACKS from './constants/tracks';
 import { haversineDistanceMeters } from './utils/geo';
-import { useTasks } from './hooks/useTasks';
 
 // --- Slim horizontal progress bar ---
 function ProgressBar({ percent = 0, trackColor = '#4a4a4a', fillColor = '#24ff98', height = 16 }) {
@@ -57,11 +57,38 @@ export default function WorkerDashboard() {
   const { user, userData, displayName } = useAuth();
 
   const assignedTrack = userData?.assignedTrack ?? '';
-  const role = userData?.role ?? '';
+  const role = userData?.role ?? 'worker';
   const isClockedIn = !!userData?.isClockedIn;
 
-  // ✅ Fetch today's tasks
-  const tasks = useTasks(assignedTrack, role);
+  // ✅ Fetch today's tasks dynamically based on role
+  const [tasks, setTasks] = useState([]);
+  useEffect(() => {
+    if (!assignedTrack || !role) return;
+
+    const fetchTasks = async () => {
+      try {
+        const tasksDocRef = doc(db, 'tracks', assignedTrack, 'templates', role);
+        const snap = await getDoc(tasksDocRef);
+        if (snap.exists()) {
+          const data = snap.data();
+          const taskList = (data.tasks || []).map((t, idx) => ({
+            id: `${assignedTrack}-${role}-${idx}`,
+            title: t.name,
+            days: t.days,
+            completedBy: t.completedBy || []
+          }));
+          setTasks(taskList);
+        } else {
+          setTasks([]);
+        }
+      } catch (err) {
+        console.error('Error loading tasks:', err);
+        setTasks([]);
+      }
+    };
+
+    fetchTasks();
+  }, [assignedTrack, role]);
 
   // ✅ Calculate completion % for THIS worker
   const completion = tasks.length
@@ -71,15 +98,26 @@ export default function WorkerDashboard() {
     : 0;
 
   // ✅ Toggle a task's completion for this worker
-  const toggleTask = async (task) => {
+const toggleTask = async (task) => {
+  if (!task?.id || !user?.uid) return;
+
+  const completedByArray = Array.isArray(task.completedBy) ? task.completedBy : [];
+  const isCompleted = completedByArray.includes(user.uid);
+
+  try {
     const ref = doc(db, 'tasks', task.id);
-    const isCompleted = task.completedBy.includes(user.uid);
     await updateDoc(ref, {
       completedBy: isCompleted
         ? arrayRemove(user.uid)
         : arrayUnion(user.uid)
     });
-  };
+  } catch (error) {
+    console.error('Error updating task:', error.message);
+    alert('Failed to update task. Please try again.');
+  }
+};
+
+
 
   // --- DEV BYPASS ---
   const allowBypass =
@@ -214,7 +252,7 @@ export default function WorkerDashboard() {
 
   return (
     <>
-      <TopNav role="worker" />
+      <TopNav />
       {bypassActive && <div className="bypass-banner">Geofence bypass enabled (dev mode)</div>}
       <div className="main-wrapper" style={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', padding: 16 }}>
         <div className="glass-card" style={{ maxWidth: 820, width: '100%', padding: 20 }}>

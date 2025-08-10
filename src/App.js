@@ -8,27 +8,31 @@ import WorkerDashboard from './WorkerDashboard';
 import HRFinancePage from './pages/HRFinancePage';
 import { AuthProvider, useAuth } from './AuthContext';
 import LoginPage from './LoginPage';
-import TrackDetailsPage from './TrackDetailsPage'; // ✅ ADDED
+import TrackDetailsPage from './TrackDetailsPage';
 import TaskHistoryPage from './TaskHistoryPage';
-import LeaveRequestPage from './LeaveRequestPage'; // at the top with other imports
+import LeaveRequestPage from './LeaveRequestPage';
 import AdminLeavePanel from './AdminLeavePanel';
 import SeedHours from './SeedHours';
 import GeofenceGate from './components/GeofenceGate';
 import StockRoom from './pages/StockRoom';
 import SupplyRequest from './pages/SupplyRequest';
-import SeedAllHours from "./pages/SeedAllHours";
+import SeedAllHours from './pages/SeedAllHours';
 import AdminTaskCreator from './pages/AdminTaskCreator';
 import Clock from './pages/Clock';
+import TaskSeeder from './pages/TaskSeeder';
+import { isAdmin as isAdminFn, isWorkerLike as isWorkerLikeFn } from './utils/roles';
 
-
-
-
-function ProtectedRoute({ children, roleRequired }) {
-  const { user, role, loading } = useAuth();
-
-  if (loading) return null; // or a loading spinner
+// ✅ Single, consistent guard using `require="admin" | "workerLike"`
+function ProtectedRoute({ children, require }) {
+  const { user, role, profile, loading } = useAuth();
+  if (loading) return null;
   if (!user) return <Navigate to="/" />;
-  if (roleRequired && role !== roleRequired) return <Navigate to="/" />;
+
+  const effectiveRole = (role || profile?.role || '').toLowerCase();
+
+  if (require === 'admin' && !isAdminFn(effectiveRole)) return <Navigate to="/" />;
+  if (require === 'workerLike' && !isWorkerLikeFn(effectiveRole)) return <Navigate to="/" />;
+
   return children;
 }
 
@@ -37,61 +41,74 @@ function App() {
     <AuthProvider>
       <Router>
         <Routes>
-          <Route
-  path="/worker-dashboard"
-  element={
-    <ProtectedRoute allowedRoles={['worker']}>
-      <GeofenceGate>
-        <WorkerDashboard />
-      </GeofenceGate>
-    </ProtectedRoute>
-  }
-/>
+          {/* Public */}
           <Route path="/" element={<LoginPage />} />
+          <Route path="/seed-tasks" element={<TaskSeeder />} />
           <Route path="/task-creator" element={<AdminTaskCreator />} />
           <Route path="/admin/seed-hours" element={<SeedAllHours />} />
-          <Route path="/stockroom" element={<StockRoom />} />
-          <Route path="/request-supplies" element={<SupplyRequest />} />
           <Route path="/seed-hours" element={<SeedHours />} />
           <Route path="/task-history" element={<TaskHistoryPage />} />
           <Route path="/request-leave" element={<LeaveRequestPage />} />
-          <Route path="/admin-leave" element={<AdminLeavePanel />} />
-          <Route path="/admin-dashboard"element={<ProtectedRoute roleRequired="admin">
+          <Route path="/stockroom" element={<StockRoom />} />
+          <Route path="/request-supplies" element={<SupplyRequest />} />
+
+          {/* Admin-only */}
+          <Route
+            path="/admin-dashboard"
+            element={
+              <ProtectedRoute require="admin">
                 <AdminDashboard />
               </ProtectedRoute>
             }
           />
           <Route
-  path="/clock"
-  element={
-    <ProtectedRoute roleRequired="worker">
-      <Clock />
-    </ProtectedRoute>
-  }
-/>
-
-          <Route
-            path="/worker-dashboard"
-            element={
-              <ProtectedRoute roleRequired="worker">
-                <WorkerDashboard />
-              </ProtectedRoute>
-            }
-          />
-
-          <Route
             path="/track-details/:trackName"
             element={
-              <ProtectedRoute roleRequired="admin">
+              <ProtectedRoute require="admin">
                 <TrackDetailsPage />
               </ProtectedRoute>
             }
           />
-          <Route path="/safety-checklist" element={<SafetyChecklistPage />} />
-  <Route path="/safety-review" element={<SafetyReviewPage />} />
-  <Route path="/hr-finance" element={<HRFinancePage />} />
-</Routes>
+          <Route
+            path="/admin-leave"
+            element={
+              <ProtectedRoute require="admin">
+                <AdminLeavePanel />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/hr-finance"
+            element={
+              <ProtectedRoute require="admin">
+                <HRFinancePage />
+              </ProtectedRoute>
+            }
+          />
 
+          {/* Worker-like */}
+          <Route
+            path="/worker-dashboard"
+            element={
+              <ProtectedRoute require="workerLike">
+                <GeofenceGate>
+                  <WorkerDashboard />
+                </GeofenceGate>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/clock"
+            element={
+              <ProtectedRoute require="workerLike">
+                <Clock />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Fallback */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </Router>
     </AuthProvider>
   );

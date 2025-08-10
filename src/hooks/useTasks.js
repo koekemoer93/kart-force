@@ -4,6 +4,8 @@ import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firest
 
 export function useTasks(trackId, role) {
   const [tasks, setTasks] = useState([]);
+
+  // Get today's start/end time
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const todayEnd = new Date();
@@ -21,7 +23,15 @@ export function useTasks(trackId, role) {
     );
 
     const unsub = onSnapshot(q, (snapshot) => {
-      setTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setTasks(snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          // Always ensure completedBy is an array
+          completedBy: Array.isArray(data.completedBy) ? data.completedBy : []
+        };
+      }));
     });
 
     return unsub;

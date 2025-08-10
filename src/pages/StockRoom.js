@@ -13,18 +13,21 @@ import {
   runTransaction,
   serverTimestamp,
 } from 'firebase/firestore';
-import { createItem, receiveStock } from '../services/inventory'; // ⬅ removed fulfillRequest import (we do it here safely)
+import { createItem, receiveStock } from '../services/inventory';
+import { isAdmin, isWorkerLike } from '../utils/roles';
 
 /**
  * IMPORTANT CHANGE:
- * - Replaced handleFulfill() to run a single Firestore transaction where
- *   ALL reads happen before ANY writes (fixes "transactions require all reads before writes").
- * - Works with request.items having either { itemId, qty, ... } OR just { name, qty, ... }.
+ * - Fulfillment uses one Firestore transaction where ALL reads happen before ANY writes.
+ * - Supports request.items lines with either { itemId, qty, ... } OR just { name, qty, ... }.
  */
 
 export default function StockRoom() {
-  const { user, userData } = useAuth();
-  const isAdmin = userData?.role === 'admin';
+  // ✅ Single source of truth for role
+  const { user, profile, role: ctxRole } = useAuth();
+  const effectiveRole = ctxRole || profile?.role || '';
+  const admin = isAdmin(effectiveRole);
+  const workerLike = isWorkerLike(effectiveRole);
 
   const [items, setItems] = useState([]);
   const [reqs, setReqs] = useState([]);
@@ -79,7 +82,7 @@ export default function StockRoom() {
 
   async function handleCreateItem(e) {
     e.preventDefault();
-    if (!isAdmin) return alert('Admin only.');
+    if (!admin) return alert('Admin only.');
     try {
       const payload = {
         name: newItem.name.trim(),
@@ -107,7 +110,7 @@ export default function StockRoom() {
 
   async function handleReceive(e) {
     e.preventDefault();
-    if (!isAdmin) return alert('Admin only.');
+    if (!admin) return alert('Admin only.');
     try {
       if (!receive.itemId) return alert('Select item');
       const qty = Number(receive.qty);
@@ -127,7 +130,7 @@ export default function StockRoom() {
    * - Validates stock (no negatives)
    */
   async function handleFulfill(requestId) {
-    if (!isAdmin) return alert('Admin only.');
+    if (!admin) return alert('Admin only.');
     try {
       await runTransaction(db, async (tx) => {
         // --- 1) READ all docs first -----------------------
@@ -218,7 +221,7 @@ export default function StockRoom() {
 
   return (
     <>
-      <TopNav role={userData?.role || 'worker'} />
+      <TopNav />
       <div className="main-wrapper admin-dashboard-layout">
         {/* Inventory Overview */}
         <div className="glass-card progress-summary-card" style={{ gridColumn: '1 / -1' }}>
@@ -362,7 +365,7 @@ export default function StockRoom() {
                     </li>
                   ))}
                 </ul>
-                {isAdmin && (
+                {admin && (
                   <div className="row gap12" style={{ marginTop: 10 }}>
                     <button className="button-primary" onClick={() => handleFulfill(r.id)}>
                       Fulfill & Deduct Stock

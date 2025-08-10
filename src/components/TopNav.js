@@ -1,6 +1,4 @@
 // src/components/TopNav.js
-// ⬇️ Paste this entire file
-
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
@@ -8,10 +6,16 @@ import { auth } from '../firebase';
 import { useAuth } from '../AuthContext';
 import Avatar from './Avatar';
 import './TopNav.css';
+import { isAdmin, isWorkerLike } from '../utils/roles';
 
-const TopNav = ({ role }) => {
+export default function TopNav() {
   const navigate = useNavigate();
-  const { user, profile, userData } = useAuth(); // include userData for role fallback
+  const { user, profile, role: ctxRole } = useAuth();
+
+  // ✅ single declaration (no duplicates)
+  const effectiveRole = ctxRole || profile?.role || '';
+  const admin = isAdmin(effectiveRole);
+  const workerLike = isWorkerLike(effectiveRole);
 
   const handleLogout = async () => {
     try {
@@ -22,51 +26,49 @@ const TopNav = ({ role }) => {
     }
   };
 
-  // 🔐 Determine effective role: prop overrides, else userData.role, else worker
-  const effectiveRole =
-    (typeof role === 'string' && role) ||
-    (userData && userData.role) ||
-    'worker';
-
-  // ✅ Button sets per role
+  // ---- Button sets ----
   const adminButtons = [
     { label: 'Dashboard', path: '/admin-dashboard' },
     { label: 'Leave Requests', path: '/admin-leave' },
     { label: 'H&S Review', path: '/safety-review' },
-    { label: 'HR & Finance', path: '/hr-finance' }, // admin-only
-    { label: 'Stock Room', path: '/stockroom' },    // adjust if your route differs
+    { label: 'HR & Finance', path: '/hr-finance' },
+    { label: 'Stock Room', path: '/stockroom' },
+    { label: 'Task Seeder', path: '/seed-tasks' }, // 🔹 admin-only tool
   ];
 
   const hrFinanceButtons = [
     { label: 'Dashboard', path: '/admin-dashboard' },
     { label: 'Leave Requests', path: '/admin-leave' },
     { label: 'H&S Review', path: '/safety-review' },
-    // Note: No "HR & Finance" here (admin-only by request)
   ];
 
   const workerButtons = [
     { label: 'Worker Dashboard', path: '/worker-dashboard' },
-    { label: 'Clock In/Out', path: '/clock' }, // adjust if your route name differs
+    { label: 'Clock In/Out', path: '/clock' },
     { label: 'Apply for Leave', path: '/request-leave' },
-    { label: 'Request Stock', path: '/request-supplies' }, // 🔹 NEW BUTTON
-    // Optionally later: { label: 'Safety Checklist', path: '/safety-checklist' }
+    { label: 'Request Stock', path: '/request-supplies' },
   ];
 
-  const buttons =
-    effectiveRole === 'admin'
-      ? adminButtons
-      : effectiveRole === 'hrFinance'
-      ? hrFinanceButtons
-      : workerButtons;
+  // ---- Role → Buttons mapping ----
+  let buttons;
+  if (admin) {
+    buttons = adminButtons;
+  } else if (effectiveRole === 'hrfinance') {
+    buttons = hrFinanceButtons;
+  } else if (workerLike) {
+    buttons = workerButtons;
+  } else {
+    buttons = workerButtons; // fallback
+  }
 
   return (
     <div className="topnav">
-      {/* Left: app title */}
+      {/* Left: logo */}
       <div className="left" onClick={() => navigate('/')} role="button" tabIndex={0}>
         <div className="logo-text">Kart Force</div>
       </div>
 
-      {/* Center: scrollable button strip */}
+      {/* Center: nav buttons */}
       <div className="center">
         <div className="nav-scroll">
           {buttons.map((b) => (
@@ -81,7 +83,7 @@ const TopNav = ({ role }) => {
         </div>
       </div>
 
-      {/* Right: Logout + Avatar */}
+      {/* Right: logout + avatar */}
       <div className="right">
         <button className="nav-btn" onClick={handleLogout}>
           Logout
@@ -94,6 +96,4 @@ const TopNav = ({ role }) => {
       </div>
     </div>
   );
-};
-
-export default TopNav;
+}

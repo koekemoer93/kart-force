@@ -45,7 +45,7 @@ function LeaveRequestPage() {
 
   return (
     <>
-      <TopNav role={userData?.role || 'worker'} />
+      <TopNav />
 
       <div className="main-wrapper" style={{ marginTop: 80 }}>
         <div className="glass-card">
