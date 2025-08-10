@@ -5,7 +5,6 @@ import SafetyReviewPage from './pages/SafetyReviewPage';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import AdminDashboard from './AdminDashboard';
 import WorkerDashboard from './WorkerDashboard';
-import HRFinancePage from './pages/HRFinancePage';
 import { AuthProvider, useAuth } from './AuthContext';
 import LoginPage from './LoginPage';
 import TrackDetailsPage from './TrackDetailsPage';
@@ -89,14 +88,7 @@ function App() {
               </ProtectedRoute>
             }
           />
-          <Route
-            path="/hr-finance"
-            element={
-              <ProtectedRoute require="admin">
-                <HRFinancePage />
-              </ProtectedRoute>
-            }
-          />
+      
 
           <Route
   path="/admin-task-seeder"

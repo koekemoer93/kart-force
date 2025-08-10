@@ -29,9 +29,8 @@ export default function TopNav() {
   // ---- Button sets ----
   const adminButtons = [
     { label: 'Dashboard', path: '/admin-dashboard' },
-    { label: 'Leave Requests', path: '/admin-leave' },
+    { label: 'HR & Employees', path: '/admin-leave' },
     { label: 'H&S Review', path: '/safety-review' },
-    { label: 'HR & Finance', path: '/hr-finance' },
     { label: 'Stock Room', path: '/stockroom' },
     { label: 'Task Creator', path: '/admin-task-manager' },
 
