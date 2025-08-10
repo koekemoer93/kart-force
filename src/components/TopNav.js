@@ -68,7 +68,7 @@ export default function TopNav() {
     <div className="topnav">
       {/* Left: logo */}
       <div className="left" onClick={() => navigate('/')} role="button" tabIndex={0}>
-        <div className="logo-text">Kart Force</div>
+        <div className="logo-text"></div>
       </div>
 
       {/* Center: nav buttons */}
