@@ -194,7 +194,7 @@ export default function StockRoom() {
         const invRefs = [];
         const resolved = [];
 
-        itemsInReq.forEach((it, idx) => {
+        itemsInReq.forEach((it) => {
           const qty = Number(it.qty || 0);
           if (!qty || qty <= 0) return;
 
@@ -209,7 +209,12 @@ export default function StockRoom() {
 
           const ref = doc(db, 'inventory', invDocId);
           invRefs.push(ref);
-          resolved.push({ idx, ref, qtyToDeduct: qty, label: it.name || invDocId, unit: it.unit || itemsById.get(invDocId)?.unit || '' });
+          resolved.push({
+            ref,
+            qtyToDeduct: qty,
+            label: it.name || invDocId,
+            unit: it.unit || itemsById.get(invDocId)?.unit || '',
+          });
         });
 
         const invSnaps = [];
@@ -227,7 +232,11 @@ export default function StockRoom() {
         });
 
         updates.forEach((u) => tx.update(u.ref, { qty: u.newQty }));
-        tx.update(reqRef, { status: 'fulfilled', fulfilledAt: serverTimestamp(), fulfilledBy: user?.uid || null });
+        tx.update(reqRef, {
+          status: 'fulfilled',
+          fulfilledAt: serverTimestamp(),
+          fulfilledBy: user?.uid || null,
+        });
       });
 
       alert('Stock deducted and request fulfilled ✔');
@@ -281,16 +290,15 @@ export default function StockRoom() {
               <option value="category">Sort: Category</option>
             </select>
 
-<button
-  type="button"
-  className={`btn-toggle ${sortDir === 'desc' ? 'is-active' : ''}`}
-  onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
-  title="Toggle sort direction"
-  aria-pressed={sortDir === 'desc'}
->
-  {sortDir === 'asc' ? 'Asc ↑' : 'Desc ↓'}
-</button>
-
+            <button
+              type="button"
+              className={`btn-toggle ${sortDir === 'desc' ? 'is-active' : ''}`}
+              onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+              title="Toggle sort direction"
+              aria-pressed={sortDir === 'desc'}
+            >
+              {sortDir === 'asc' ? 'Asc ↑' : 'Desc ↓'}
+            </button>
 
             <select
               className="input-field"
@@ -323,6 +331,127 @@ export default function StockRoom() {
               />
               Low stock only
             </label>
+          </div>
+
+          {/* --- Actions at the top: Add item | Receive stock | Pending requests --- */}
+          <div className="stock-actions-grid">
+            {/* Add New Item */}
+            <div className="glass-subcard">
+              <h3>Add New Item</h3>
+              <form onSubmit={handleCreateItem}>
+                <input
+                  className="input-field"
+                  placeholder="Item name (e.g., Coke 330ml)"
+                  value={newItem.name}
+                  onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
+                />
+                <div className="row gap12">
+                  <input
+                    className="input-field"
+                    placeholder="Unit (e.g., can, pcs)"
+                    value={newItem.unit}
+                    onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
+                  />
+                  <select
+                    className="input-field"
+                    value={newItem.category}
+                    onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
+                  >
+                    <option value="drinks">drinks</option>
+                    <option value="spares">spares</option>
+                    <option value="essentials">essentials</option>
+                  </select>
+                </div>
+                <div className="row gap12">
+                  <input
+                    className="input-field"
+                    type="number"
+                    placeholder="Min qty"
+                    value={newItem.minQty}
+                    onChange={(e) => setNewItem({ ...newItem, minQty: e.target.value })}
+                  />
+                  <input
+                    className="input-field"
+                    type="number"
+                    placeholder="Max qty (optional)"
+                    value={newItem.maxQty}
+                    onChange={(e) => setNewItem({ ...newItem, maxQty: e.target.value })}
+                  />
+                  <input
+                    className="input-field"
+                    type="number"
+                    placeholder="Initial qty"
+                    value={newItem.initialQty}
+                    onChange={(e) => setNewItem({ ...newItem, initialQty: e.target.value })}
+                  />
+                </div>
+                <button className="button-primary" type="submit">Save Item</button>
+              </form>
+            </div>
+
+            {/* Receive Stock */}
+            <div className="glass-subcard">
+              <h3>Receive Stock</h3>
+              <form onSubmit={handleReceive}>
+                <select
+                  className="input-field"
+                  value={receive.itemId}
+                  onChange={(e) => setReceive({ ...receive, itemId: e.target.value })}
+                >
+                  <option value="">Select item…</option>
+                  {items.map((it) => (
+                    <option key={it.id} value={it.id}>{it.name}</option>
+                  ))}
+                </select>
+                <div className="row gap12">
+                  <input
+                    className="input-field"
+                    type="number"
+                    placeholder="Quantity"
+                    value={receive.qty}
+                    onChange={(e) => setReceive({ ...receive, qty: e.target.value })}
+                  />
+                  <input
+                    className="input-field"
+                    placeholder="Reason (optional)"
+                    value={receive.reason}
+                    onChange={(e) => setReceive({ ...receive, reason: e.target.value })}
+                  />
+                </div>
+                <button className="button-primary" type="submit">Add to Inventory</button>
+              </form>
+            </div>
+
+            {/* Pending Requests */}
+            <div className="glass-subcard">
+              <h3>Pending Requests</h3>
+              {pendingReqs.length === 0 ? (
+                <p className="muted">No pending requests.</p>
+              ) : (
+                pendingReqs.map((r) => (
+                  <div key={r.id} className="card-inner" style={{ padding: 8, marginBottom: 8 }}>
+                    <div className="row between">
+                      <strong>{r.trackId}</strong>
+                      <span className="small muted">{r.status}</span>
+                    </div>
+                    <ul style={{ marginTop: 6 }}>
+                      {r.items.map((it, idx) => (
+                        <li key={idx} className="small">
+                          {it.name} — {it.qty} {it.unit}
+                        </li>
+                      ))}
+                    </ul>
+                    {admin && (
+                      <div className="row gap12" style={{ marginTop: 8 }}>
+                        <button className="button-primary" onClick={() => handleFulfill(r.id)}>
+                          Fulfill & Deduct Stock
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
 
           {/* Cards view */}
@@ -401,123 +530,6 @@ export default function StockRoom() {
                 </tbody>
               </table>
             </div>
-          )}
-        </div>
-
-        {/* Left: Add new item + Receive stock */}
-        <div className="glass-card welcome-card">
-          <h3 style={{ marginTop: 0 }}>Add New Item</h3>
-          <form onSubmit={handleCreateItem}>
-            <input
-              className="input-field"
-              placeholder="Item name (e.g., Coke 330ml)"
-              value={newItem.name}
-              onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-            />
-            <div className="row gap12">
-              <input
-                className="input-field"
-                placeholder="Unit (e.g., can, pcs)"
-                value={newItem.unit}
-                onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
-              />
-              <select
-                className="input-field"
-                value={newItem.category}
-                onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
-              >
-                <option value="drinks">drinks</option>
-                <option value="spares">spares</option>
-                <option value="essentials">essentials</option>
-              </select>
-            </div>
-            <div className="row gap12">
-              <input
-                className="input-field"
-                type="number"
-                placeholder="Min qty"
-                value={newItem.minQty}
-                onChange={(e) => setNewItem({ ...newItem, minQty: e.target.value })}
-              />
-              <input
-                className="input-field"
-                type="number"
-                placeholder="Max qty (optional)"
-                value={newItem.maxQty}
-                onChange={(e) => setNewItem({ ...newItem, maxQty: e.target.value })}
-              />
-              <input
-                className="input-field"
-                type="number"
-                placeholder="Initial qty"
-                value={newItem.initialQty}
-                onChange={(e) => setNewItem({ ...newItem, initialQty: e.target.value })}
-              />
-            </div>
-            <button className="button-primary" type="submit">Save Item</button>
-          </form>
-
-          <hr style={{ borderColor: 'rgba(255,255,255,0.1)', margin: '18px 0' }} />
-
-          <h3>Receive Stock</h3>
-          <form onSubmit={handleReceive}>
-            <select
-              className="input-field"
-              value={receive.itemId}
-              onChange={(e) => setReceive({ ...receive, itemId: e.target.value })}
-            >
-              <option value="">Select item…</option>
-              {items.map((it) => (
-                <option key={it.id} value={it.id}>{it.name}</option>
-              ))}
-            </select>
-            <div className="row gap12">
-              <input
-                className="input-field"
-                type="number"
-                placeholder="Quantity"
-                value={receive.qty}
-                onChange={(e) => setReceive({ ...receive, qty: e.target.value })}
-              />
-              <input
-                className="input-field"
-                placeholder="Reason (optional)"
-                value={receive.reason}
-                onChange={(e) => setReceive({ ...receive, reason: e.target.value })}
-              />
-            </div>
-            <button className="button-primary" type="submit">Add to Inventory</button>
-          </form>
-        </div>
-
-        {/* Right: Pending Requests */}
-        <div className="glass-card team-overview-card">
-          <h3 style={{ marginTop: 0 }}>Pending Requests</h3>
-          {pendingReqs.length === 0 ? (
-            <p className="muted">No pending requests.</p>
-          ) : (
-            pendingReqs.map((r) => (
-              <div key={r.id} className="card-inner">
-                <div className="row between">
-                  <strong>{r.trackId}</strong>
-                  <span className="small muted">{r.status}</span>
-                </div>
-                <ul style={{ marginTop: 8 }}>
-                  {r.items.map((it, idx) => (
-                    <li key={idx} className="small">
-                      {it.name} — {it.qty} {it.unit}
-                    </li>
-                  ))}
-                </ul>
-                {admin && (
-                  <div className="row gap12" style={{ marginTop: 10 }}>
-                    <button className="button-primary" onClick={() => handleFulfill(r.id)}>
-                      Fulfill & Deduct Stock
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))
           )}
         </div>
       </div>

@@ -426,3 +426,33 @@ select {
   border-color: #24ff98;
   background: rgba(36, 255, 152, 0.06);
 }
+
+/* StockRoom — actions grid placed inside the main overview card */
+.stock-actions-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr; /* add-new a bit wider */
+  gap: 12px;
+  margin: 8px 0 14px;
+}
+
+@media (max-width: 1200px) {
+  .stock-actions-grid {
+    grid-template-columns: 1fr 1fr; /* 2 columns on medium screens */
+  }
+}
+@media (max-width: 820px) {
+  .stock-actions-grid {
+    grid-template-columns: 1fr; /* stack on phones */
+  }
+}
+
+/* a smaller glassy card that sits nicely inside another card */
+.glass-subcard {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px;
+}
+.glass-subcard h3 {
+  margin: 0 0 8px 0;
+}

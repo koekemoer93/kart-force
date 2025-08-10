@@ -1,5 +1,5 @@
 // src/TrackDetailsPage.js
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { db } from './firebase';
 import {
@@ -7,58 +7,95 @@ import {
   query,
   where,
   getDocs,
-  Timestamp,
-  doc,
-  getDoc
 } from 'firebase/firestore';
 import './theme.css';
 import './TrackDetailsPage.css';
 import TopNav from './components/TopNav';
 
+// Local YYYY-MM-DD string
+function yyyyMmDdLocal(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${da}`;
+}
+
 const TrackDetailsPage = () => {
-  const { trackName } = useParams();
-  const [workers, setWorkers] = useState([]);
+  const { trackName } = useParams(); // we pass the Firestore track id in the route
+  const trackId = trackName;
+  const todayStr = yyyyMmDdLocal();
+
+  const [workers, setWorkers] = useState([]);  // [{ uid, name, roleLower }]
+  const [tasks, setTasks] = useState([]);      // live tasks for this track+today
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchTrackWorkers = async () => {
-      const userRef = collection(db, 'users');
-      const q = query(userRef, where('assignedTrack', '==', trackName));
-      const snapshot = await getDocs(q);
+    let cancelled = false;
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const startOfDay = Timestamp.fromDate(today);
+    async function load() {
+      setLoading(true);
 
-      const data = [];
+      // 1) Workers assigned to this track
+      const usersQ = query(collection(db, 'users'), where('assignedTrack', '==', trackId));
+      const usersSnap = await getDocs(usersQ);
+      const workerRows = usersSnap.docs.map((d) => {
+        const u = d.data() || {};
+        const name =
+          u.displayName ||
+          u.name ||
+          (u.email ? u.email.split('@')[0] : 'Unnamed');
+        const roleLower = String(u.role || '').toLowerCase();
+        return { uid: d.id, name, roleLower, rawRole: u.role || 'worker' };
+      });
 
-      for (const docSnap of snapshot.docs) {
-        const user = docSnap.data();
-        const userId = docSnap.id;
+      // 2) Tasks for this track today
+      const tasksQ = query(
+        collection(db, 'tasks'),
+        where('assignedTrack', '==', trackId),
+        where('date', '==', todayStr)
+      );
+      const tasksSnap = await getDocs(tasksQ);
+      const taskRows = tasksSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-        const completedRef = collection(db, 'users', userId, 'completedTasks');
-        const completedQuery = query(completedRef, where('completedAt', '>=', startOfDay));
-        const completedSnapshot = await getDocs(completedQuery);
-
-        const role = user.role || 'worker';
-        const templateDoc = await getDoc(doc(db, 'tracks', trackName, 'templates', role));
-        const totalTasks = templateDoc.exists() ? (templateDoc.data().tasks || []).length : 0;
-
-        data.push({
-          name: user.name || 'Unnamed',
-          role,
-          completed: completedSnapshot.size,
-          total: totalTasks,
-          percent: totalTasks > 0 ? Math.round((completedSnapshot.size / totalTasks) * 100) : 0
-        });
+      if (!cancelled) {
+        setWorkers(workerRows);
+        setTasks(taskRows);
+        setLoading(false);
       }
+    }
 
-      setWorkers(data);
-      setLoading(false);
-    };
+    load();
+    return () => { cancelled = true; };
+  }, [trackId, todayStr]);
 
-    fetchTrackWorkers();
-  }, [trackName]);
+  // Build per-worker totals and completed counts using /tasks.completedBy
+  const workerProgress = useMemo(() => {
+    // Index tasks by role (lowercased) to speed up
+    const byRole = tasks.reduce((acc, t) => {
+      const r = String(t.role || '').toLowerCase();
+      (acc[r] ||= []).push(t);
+      return acc;
+    }, {});
+
+    return workers.map((w) => {
+      const roleTasks = byRole[w.roleLower] || [];
+      const total = roleTasks.length;
+
+      const done = roleTasks.filter((t) =>
+        Array.isArray(t.completedBy) && t.completedBy.includes(w.uid)
+      ).length;
+
+      const percent = total ? Math.round((done / total) * 100) : 0;
+
+      return {
+        name: w.name,
+        role: w.rawRole,
+        completed: done,
+        total,
+        percent,
+      };
+    });
+  }, [workers, tasks]);
 
   if (loading) {
     return (
@@ -78,22 +115,26 @@ const TrackDetailsPage = () => {
       <TopNav role="admin" />
       <div className="main-wrapper">
         <div className="glass-card track-header">
-          <h2>{trackName.replace(/_/g, ' ')}</h2>
+          <h2>{trackId.replace(/_/g, ' ')}</h2>
           <p>Live Dashboard</p>
         </div>
 
         <div className="glass-card">
           <h3>Workers Assigned</h3>
-          {workers.map((w, i) => (
-            <div key={i} className="card-inner">
-              <p><b>{w.name}</b> — {w.role}</p>
-              <p>Tasks Done: {w.completed}/{w.total}</p>
-              <p>Progress: <b>{w.percent}%</b></p>
-              <div className="progress-bar">
-                <div className="progress-fill" style={{ width: `${w.percent}%` }} />
+          {workerProgress.length === 0 ? (
+            <p className="muted">No workers assigned to this track.</p>
+          ) : (
+            workerProgress.map((w, i) => (
+              <div key={i} className="card-inner">
+                <p><b>{w.name}</b> — {w.role}</p>
+                <p>Tasks Done: {w.completed}/{w.total}</p>
+                <p>Progress: <b>{w.percent}%</b></p>
+                <div className="progress-bar">
+                  <div className="progress-fill" style={{ width: `${w.percent}%` }} />
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
     </>
