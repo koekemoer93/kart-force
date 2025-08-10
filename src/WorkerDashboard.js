@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { db, } from './firebase';
+import { db } from './firebase';
 import { useAuth } from './AuthContext';
 import {
   collection,
@@ -9,7 +9,6 @@ import {
   orderBy,
   limit,
   doc,
-  getDoc,
   updateDoc,
   arrayUnion,
   arrayRemove
@@ -60,66 +59,58 @@ export default function WorkerDashboard() {
   const role = userData?.role ?? 'worker';
   const isClockedIn = !!userData?.isClockedIn;
 
-  // ✅ Fetch today's tasks dynamically based on role
   const [tasks, setTasks] = useState([]);
-  useEffect(() => {
-    if (!assignedTrack || !role) return;
 
-    const fetchTasks = async () => {
-      try {
-        const tasksDocRef = doc(db, 'tracks', assignedTrack, 'templates', role);
-        const snap = await getDoc(tasksDocRef);
-        if (snap.exists()) {
-          const data = snap.data();
-          const taskList = (data.tasks || []).map((t, idx) => ({
-            id: `${assignedTrack}-${role}-${idx}`,
-            title: t.name,
-            days: t.days,
-            completedBy: t.completedBy || []
-          }));
-          setTasks(taskList);
-        } else {
-          setTasks([]);
-        }
-      } catch (err) {
-        console.error('Error loading tasks:', err);
+  // --- Load today's tasks (read-only for workers) ---
+  useEffect(() => {
+    if (!assignedTrack || !role || !user?.uid) return;
+
+    const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+    const qTasks = query(
+      collection(db, 'tasks'),
+      where('assignedTrack', '==', assignedTrack),
+      where('role', '==', role),
+      where('date', '==', todayStr)
+    );
+
+    const unsub = onSnapshot(qTasks, (snap) => {
+      if (!snap.empty) {
+        setTasks(snap.docs.map(d => ({ docId: d.id, ...d.data() })));
+      } else {
         setTasks([]);
       }
-    };
+    });
 
-    fetchTasks();
-  }, [assignedTrack, role]);
+    return () => unsub();
+  }, [assignedTrack, role, user]);
 
-  // ✅ Calculate completion % for THIS worker
+  // --- Completion percent ---
   const completion = tasks.length
     ? Math.round(
         (tasks.filter(t => t.completedBy.includes(user.uid)).length / tasks.length) * 100
       )
     : 0;
 
-  // ✅ Toggle a task's completion for this worker
-const toggleTask = async (task) => {
-  if (!task?.id || !user?.uid) return;
+  // --- Toggle task completion ---
+  const toggleTask = async (task) => {
+    if (!task?.docId || !user?.uid) return;
+    const isCompleted = task.completedBy?.includes(user.uid);
 
-  const completedByArray = Array.isArray(task.completedBy) ? task.completedBy : [];
-  const isCompleted = completedByArray.includes(user.uid);
+    try {
+      const ref = doc(db, 'tasks', task.docId);
+      await updateDoc(ref, {
+        completedBy: isCompleted
+          ? arrayRemove(user.uid)
+          : arrayUnion(user.uid)
+      });
+    } catch (error) {
+      console.error('Error updating task:', error.message);
+      alert('Failed to update task. Please try again.');
+    }
+  };
 
-  try {
-    const ref = doc(db, 'tasks', task.id);
-    await updateDoc(ref, {
-      completedBy: isCompleted
-        ? arrayRemove(user.uid)
-        : arrayUnion(user.uid)
-    });
-  } catch (error) {
-    console.error('Error updating task:', error.message);
-    alert('Failed to update task. Please try again.');
-  }
-};
-
-
-
-  // --- DEV BYPASS ---
+  // --- Geofence bypass ---
   const allowBypass =
     process.env.NODE_ENV !== 'production' ||
     String(process.env.REACT_APP_ALLOW_BYPASS).toLowerCase() === 'true';
@@ -157,7 +148,7 @@ const toggleTask = async (task) => {
         )
       : null;
 
-  // --- Staff on duty count (realtime) ---
+  // --- Staff on duty count ---
   const [staffCount, setStaffCount] = useState(0);
   useEffect(() => {
     if (!assignedTrack) return;
@@ -172,7 +163,7 @@ const toggleTask = async (task) => {
     return () => unsub();
   }, [assignedTrack]);
 
-  // --- My clock-in time (live) ---
+  // --- My clock-in time ---
   const [clockInTime, setClockInTime] = useState(null);
   useEffect(() => {
     if (!isClockedIn || !user?.uid) { setClockInTime(null); return; }
@@ -319,11 +310,11 @@ const toggleTask = async (task) => {
           {/* Tasks list */}
           <h3 style={{ marginTop: 20 }}>Today's Tasks</h3>
           {tasks.length === 0 ? (
-            <p>No tasks found.</p>
+            <p style={{ color: '#ff6666' }}>No tasks assigned for today — please check with your manager.</p>
           ) : (
             <ul>
               {tasks.map(t => (
-                <li key={t.id} style={{ margin: '10px 0' }}>
+                <li key={t.docId} style={{ margin: '10px 0' }}>
                   <label>
                     <input
                       type="checkbox"

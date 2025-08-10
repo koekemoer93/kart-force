@@ -33,8 +33,11 @@ export default function TopNav() {
     { label: 'H&S Review', path: '/safety-review' },
     { label: 'HR & Finance', path: '/hr-finance' },
     { label: 'Stock Room', path: '/stockroom' },
-    { label: 'Task Seeder', path: '/seed-tasks' }, // 🔹 admin-only tool
+    { label: 'Task Seeder', path: '/admin-task-seeder' },
+    { label: 'Task Manager', path: '/admin-task-manager' },
+
   ];
+
 
   const hrFinanceButtons = [
     { label: 'Dashboard', path: '/admin-dashboard' },

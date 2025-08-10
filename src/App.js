@@ -21,6 +21,10 @@ import AdminTaskCreator from './pages/AdminTaskCreator';
 import Clock from './pages/Clock';
 import TaskSeeder from './pages/TaskSeeder';
 import { isAdmin as isAdminFn, isWorkerLike as isWorkerLikeFn } from './utils/roles';
+import AdminTaskSeeder from './pages/AdminTaskSeeder';
+import AdminTaskManager from './pages/AdminTaskManager';
+
+
 
 // ✅ Single, consistent guard using `require="admin" | "workerLike"`
 function ProtectedRoute({ children, require }) {
@@ -62,6 +66,14 @@ function App() {
             }
           />
           <Route
+  path="/admin-task-manager"
+  element={
+    <ProtectedRoute require="admin">
+      <AdminTaskManager />
+    </ProtectedRoute>
+  }
+/>
+          <Route
             path="/track-details/:trackName"
             element={
               <ProtectedRoute require="admin">
@@ -85,6 +97,16 @@ function App() {
               </ProtectedRoute>
             }
           />
+
+          <Route
+  path="/admin-task-seeder"
+  element={
+    <ProtectedRoute require="admin">
+      <AdminTaskSeeder />
+    </ProtectedRoute>
+  }
+/>
+
 
           {/* Worker-like */}
           <Route
