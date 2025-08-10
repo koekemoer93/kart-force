@@ -16,6 +16,27 @@ const TRACK_OPTIONS = ['SyringaPark', 'Epic Karting Pavilion', 'Midlands'];
 const ROLE_OPTIONS = ['worker', 'workshopManager', 'mechanic', 'reception', 'marshall'];
 const FREQ_OPTIONS = ['daily', 'weekly', 'monthly'];
 
+function normalizeTemplateDoc(docSnap) {
+  const d = docSnap.data() || {};
+
+  // Fallbacks for legacy docs
+  const assignedTrack = d.assignedTrack || d.track || '';
+  const frequency = d.frequency || d.period || 'daily';
+  const role = String(d.role || d.assigneeRole || d.assignedToRole || 'worker').toLowerCase();
+
+  return {
+    id: docSnap.id,
+    title: d.title || '(untitled)',
+    description: d.description || '',
+    assignedTrack,
+    frequency,
+    role,
+    createdAt: d.createdAt || null,
+    _raw: d, // keep original around (useful for the fixer)
+  };
+}
+
+
 function AdminTaskManager() {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -35,7 +56,7 @@ function AdminTaskManager() {
     const unsub = onSnapshot(
       q,
       (snap) => {
-        setTemplates(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setTemplates(snap.docs.map(normalizeTemplateDoc));
         setLoading(false);
       },
       (err) => {

@@ -33,7 +33,7 @@ export default function TopNav() {
     //{ label: 'H&S Review', path: '/safety-review' },
     { label: 'Stock Room', path: '/stockroom' },
     { label: 'Task Creator', path: '/admin-task-manager' },
-
+    { label: 'Seeder', path: '/admin-task-seeder'},
   ];
 
 

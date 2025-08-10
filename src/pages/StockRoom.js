@@ -333,93 +333,106 @@ export default function StockRoom() {
             </label>
           </div>
 
-          {/* --- Actions at the top: Add item | Receive stock | Pending requests --- */}
-          <div className="stock-actions-grid">
-            {/* Add New Item */}
+          {/* --- Actions at the top: ONE container with two forms | Pending requests --- */}
+          <div className="stock-actions-grid" style={{ gridTemplateColumns: '2fr 1fr' }}>
+            {/* Combined: Add New Item + Receive Stock */}
             <div className="glass-subcard">
-              <h3>Add New Item</h3>
-              <form onSubmit={handleCreateItem}>
-                <input
-                  className="input-field"
-                  placeholder="Item name (e.g., Coke 330ml)"
-                  value={newItem.name}
-                  onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-                />
-                <div className="row gap12">
-                  <input
-                    className="input-field"
-                    placeholder="Unit (e.g., can, pcs)"
-                    value={newItem.unit}
-                    onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
-                  />
-                  <select
-                    className="input-field"
-                    value={newItem.category}
-                    onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
-                  >
-                    <option value="drinks">drinks</option>
-                    <option value="spares">spares</option>
-                    <option value="essentials">essentials</option>
-                  </select>
+              <h3>Stock Actions</h3>
+              <div
+                className="actions-two-col"
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 12,
+                }}
+              >
+                {/* Add New Item */}
+                <div>
+                  <h4 style={{ margin: '6px 0 8px 0' }}>Add New Item</h4>
+                  <form onSubmit={handleCreateItem}>
+                    <input
+                      className="input-field"
+                      placeholder="Item name (e.g., Coke 330ml)"
+                      value={newItem.name}
+                      onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
+                    />
+                    <div className="row gap12">
+                      <input
+                        className="input-field"
+                        placeholder="Unit (e.g., can, pcs)"
+                        value={newItem.unit}
+                        onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
+                      />
+                      <select
+                        className="input-field"
+                        value={newItem.category}
+                        onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
+                      >
+                        <option value="drinks">drinks</option>
+                        <option value="spares">spares</option>
+                        <option value="essentials">essentials</option>
+                      </select>
+                    </div>
+                    <div className="row gap12">
+                      <input
+                        className="input-field"
+                        type="number"
+                        placeholder="Min qty"
+                        value={newItem.minQty}
+                        onChange={(e) => setNewItem({ ...newItem, minQty: e.target.value })}
+                      />
+                      <input
+                        className="input-field"
+                        type="number"
+                        placeholder="Max qty (optional)"
+                        value={newItem.maxQty}
+                        onChange={(e) => setNewItem({ ...newItem, maxQty: e.target.value })}
+                      />
+                      <input
+                        className="input-field"
+                        type="number"
+                        placeholder="Initial qty"
+                        value={newItem.initialQty}
+                        onChange={(e) => setNewItem({ ...newItem, initialQty: e.target.value })}
+                      />
+                    </div>
+                    <button className="button-primary" type="submit">Save Item</button>
+                  </form>
                 </div>
-                <div className="row gap12">
-                  <input
-                    className="input-field"
-                    type="number"
-                    placeholder="Min qty"
-                    value={newItem.minQty}
-                    onChange={(e) => setNewItem({ ...newItem, minQty: e.target.value })}
-                  />
-                  <input
-                    className="input-field"
-                    type="number"
-                    placeholder="Max qty (optional)"
-                    value={newItem.maxQty}
-                    onChange={(e) => setNewItem({ ...newItem, maxQty: e.target.value })}
-                  />
-                  <input
-                    className="input-field"
-                    type="number"
-                    placeholder="Initial qty"
-                    value={newItem.initialQty}
-                    onChange={(e) => setNewItem({ ...newItem, initialQty: e.target.value })}
-                  />
-                </div>
-                <button className="button-primary" type="submit">Save Item</button>
-              </form>
-            </div>
 
-            {/* Receive Stock */}
-            <div className="glass-subcard">
-              <h3>Receive Stock</h3>
-              <form onSubmit={handleReceive}>
-                <select
-                  className="input-field"
-                  value={receive.itemId}
-                  onChange={(e) => setReceive({ ...receive, itemId: e.target.value })}
-                >
-                  <option value="">Select item…</option>
-                  {items.map((it) => (
-                    <option key={it.id} value={it.id}>{it.name}</option>
-                  ))}
-                </select>
-                <div className="row gap12">
-                  <input
-                    className="input-field"
-                    type="number"
-                    placeholder="Quantity"
-                    value={receive.qty}
-                    onChange={(e) => setReceive({ ...receive, qty: e.target.value })}
-                  />
-                  <input
-                    className="input-field"
-                    placeholder="Reason (optional)"
-                    value={receive.reason}
-                    onChange={(e) => setReceive({ ...receive, reason: e.target.value })}
-                  />
+                {/* Receive Stock */}
+                <div>
+                  <h4 style={{ margin: '6px 0 8px 0' }}>Receive Stock</h4>
+                  <form onSubmit={handleReceive}>
+                    <select
+                      className="input-field"
+                      value={receive.itemId}
+                      onChange={(e) => setReceive({ ...receive, itemId: e.target.value })}
+                    >
+                      <option value="">Select item…</option>
+                      {items.map((it) => (
+                        <option key={it.id} value={it.id}>{it.name}</option>
+                      ))}
+                    </select>
+                    <div className="row gap12">
+                      <input
+                        className="input-field"
+                        type="number"
+                        placeholder="Quantity"
+                        value={receive.qty}
+                        onChange={(e) => setReceive({ ...receive, qty: e.target.value })}
+                      />
+                      <input
+                        className="input-field"
+                        placeholder="Reason (optional)"
+                        value={receive.reason}
+                        onChange={(e) => setReceive({ ...receive, reason: e.target.value })}
+                      />
+                    </div>
+                    <button className="button-primary" type="submit">Add to Inventory</button>
+                  </form>
                 </div>
-                <button className="button-primary" type="submit">Add to Inventory</button>
-              </form>
+              </div>
             </div>
 
             {/* Pending Requests */}
