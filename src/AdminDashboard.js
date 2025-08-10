@@ -9,7 +9,7 @@ import { normalizeWeeklyHours, isOpenNow } from './utils/hours';
 import { useAuth } from './AuthContext';
 import Avatar from './components/Avatar';
 import { useNavigate } from 'react-router-dom';
-import { collection, query, where, onSnapshot, Timestamp, getDocs, getDoc, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, Timestamp, getDoc, doc } from 'firebase/firestore';
 
 
 // ---- Helpers to compute "open now" from hours ----
@@ -52,34 +52,12 @@ function isOpenNowForHours(hoursDoc, now = new Date()) {
   return nowMin >= openMin || nowMin < closeMin;
 }
 
-
-/** Helpers */
-function computeIsOpenFromHours(hours, now = new Date()) {
-  if (!hours) return { isOpen: false, note: 'No hours set' };
-
-  const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-  const dKey = days[now.getDay()];
-  const day = hours[dKey];
-  if (!day || day.closed) return { isOpen: false, note: 'Closed today' };
-
-  const parseHM = (s) => {
-    if (!s || !s.includes(':')) return null;
-    const [h, m] = s.split(':').map(Number);
-    return { h, m };
-  };
-
-  const o = parseHM(day.open);
-  const c = parseHM(day.close);
-  if (!o || !c) return { isOpen: false, note: 'Invalid hours' };
-
-  const toMinutes = (h, m) => h * 60 + m;
-  const nowMins = now.getHours() * 60 + now.getMinutes();
-  const openMins = toMinutes(o.h, o.m);
-  const closeMins = toMinutes(c.h, c.m);
-
-  const isOpen = nowMins >= openMins && nowMins < closeMins;
-  const note = isOpen ? `Open until ${day.close}` : `Opens ${day.open}`;
-  return { isOpen, note };
+// Local YYYY-MM-DD string (keeps worker/admin in sync if you store date as string)
+function yyyyMmDdLocal(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${da}`;
 }
 
 function formatPercent(n) {
@@ -98,6 +76,7 @@ function TrackProgressBar({ percent }) {
 }
 
 export default function AdminDashboard() {
+  // Overview metrics
   const [totalTasksToday, setTotalTasksToday] = useState(0);
   const [tasksCompletedToday, setTasksCompletedToday] = useState(0);
   const [clockedInEmployees, setClockedInEmployees] = useState(0);
@@ -106,6 +85,10 @@ export default function AdminDashboard() {
   const [avgTaskCompletion, setAvgTaskCompletion] = useState(0);
   const [announcementsToday, setAnnouncementsToday] = useState(0);
   const [lateClockIns, setLateClockIns] = useState(0);
+
+  // Live tasks for today (string date 'YYYY-MM-DD')
+  const [tasksToday, setTasksToday] = useState([]);
+
   const { user, profile } = useAuth();
   const navigate = useNavigate();
 
@@ -126,75 +109,38 @@ export default function AdminDashboard() {
   const [hoursLoading, setHoursLoading] = useState(false);
   const [hoursError, setHoursError] = useState(null);
 
+  // ---- Tasks today (date stored as string) ----
   useEffect(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayStart = Timestamp.fromDate(today);
+    const todayStr = yyyyMmDdLocal();
+    const qTasks = query(collection(db, 'tasks'), where('date', '==', todayStr));
+    const unsub = onSnapshot(qTasks, snap => {
+      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setTasksToday(rows);
 
-    // Total Tasks Today
-    const qTasks = query(collection(db, 'tasks'), where('date', '>=', todayStart));
-    const unsubTasks = onSnapshot(qTasks, snap => {
-      const allTasks = snap.docs.map(d => d.data());
-      setTotalTasksToday(allTasks.length);
-
-      const completed = allTasks.filter(t => t.completedBy && t.completedBy.length > 0).length;
+      setTotalTasksToday(rows.length);
+      const completed = rows.filter(t => Array.isArray(t.completedBy) && t.completedBy.length > 0).length;
       setTasksCompletedToday(completed);
-
-      // Avg completion
-      const avg = allTasks.length
-        ? Math.round((completed / allTasks.length) * 100)
-        : 0;
-      setAvgTaskCompletion(avg);
+      setAvgTaskCompletion(rows.length ? Math.round((completed / rows.length) * 100) : 0);
+    }, err => {
+      console.error('tasks (today) onSnapshot error:', err);
+      setTasksToday([]);
+      setTotalTasksToday(0);
+      setTasksCompletedToday(0);
+      setAvgTaskCompletion(0);
     });
+    return () => unsub();
+  }, []);
 
-    // Clocked-in Employees
+  // Clocked-in Employees
+  useEffect(() => {
     const qClockedIn = query(collection(db, 'timeEntries'), where('clockOutAt', '==', null));
     const unsubClock = onSnapshot(qClockedIn, snap => {
       setClockedInEmployees(snap.size);
     });
-
-    /* 
-    // (Old nested effect moved to top-level below)
-    useEffect(() => {
-      // Live count of tracks that are "open now" based on trading hours
-      const unsubTracks = onSnapshot(collection(db, 'tracks'), async (tracksSnap) => {
-        let openCount = 0;
-
-        await Promise.all(
-          tracksSnap.docs.map(async (tDoc) => {
-            let hoursData = null;
-            try {
-              const hoursRef = doc(db, 'tracks', tDoc.id, 'config', 'hours');
-              const hoursSnap = await getDoc(hoursRef);
-              if (hoursSnap.exists()) {
-                hoursData = hoursSnap.data();
-              } else {
-                const altRef = doc(db, 'tracks', tDoc.id, 'config', 'tradingHours');
-                const altSnap = await getDoc(altRef);
-                if (altSnap.exists()) hoursData = altSnap.data();
-              }
-            } catch (e) {}
-
-            if (isOpenNowForHours(hoursData)) openCount += 1;
-          })
-        );
-
-        setTracksOpenNow(openCount);
-      });
-
-      return () => unsubTracks();
-    }, []);
-    */
-
-    // Keep this effect's own cleanup only
-    return () => {
-      unsubTasks();
-      unsubClock();
-      // other subscriptions in this effect are cleaned up here if added
-    };
+    return () => unsubClock();
   }, []);
 
-  // ✅ Top-level effect: Tracks Open Now based on trading hours
+  // ✅ Tracks Open Now based on trading hours in /tracks/*/config/*
   useEffect(() => {
     const unsubTracks = onSnapshot(collection(db, 'tracks'), async (tracksSnap) => {
       let openCount = 0;
@@ -213,7 +159,7 @@ export default function AdminDashboard() {
               if (altSnap.exists()) hoursData = altSnap.data();
             }
           } catch (e) {
-            // optional: console.warn(e);
+            // ignore
           }
 
           if (isOpenNowForHours(hoursData)) openCount += 1;
@@ -263,6 +209,7 @@ export default function AdminDashboard() {
     return () => unsubLate();
   }, []);
 
+  // Load basic per-track meta (open/close + any stored completionPercent)
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -283,15 +230,15 @@ export default function AdminDashboard() {
             }
             const data = snap.data() || {};
 
-            let isOpen = false;
+            let isOpenMeta = false;
             let note = '';
             if (typeof data.isOpen === 'boolean') {
-              isOpen = data.isOpen;
-              note = isOpen ? 'Open now' : 'Closed now';
+              isOpenMeta = data.isOpen;
+              note = isOpenMeta ? 'Open now' : 'Closed now';
             } else {
               const hours = data.openingHours || data.tradingHours || null;
               const res = computeIsOpenFromHours(hours);
-              isOpen = res.isOpen;
+              isOpenMeta = res.isOpen;
               note = res.note;
             }
 
@@ -301,7 +248,7 @@ export default function AdminDashboard() {
                 : data.completionPercent) ?? 0;
 
             results[id] = {
-              isOpen,
+              isOpen: isOpenMeta,
               note,
               completionPercent: formatPercent(p),
             };
@@ -326,6 +273,7 @@ export default function AdminDashboard() {
     };
   }, [trackIds]);
 
+  // Load & normalize hours via service (for stronger "open now")
   useEffect(() => {
     let isMounted = true;
     async function loadAllHours() {
@@ -341,8 +289,6 @@ export default function AdminDashboard() {
             return [t.id, normalized];
           })
         );
-
-        
 
         if (!isMounted) return;
         const map = {};
@@ -361,54 +307,47 @@ export default function AdminDashboard() {
       isMounted = false;
     };
   }, []);
-  // ✅ Derive "Tracks Open" from normalized hours we already loaded
-useEffect(() => {
-  // If hours haven’t loaded yet, do nothing
-  if (!trackHours || Object.keys(trackHours).length === 0) return;
 
-  let count = 0;
-  const now = new Date();
+  // Prefer normalized hours to compute open count, fallback to meta
+  useEffect(() => {
+    const now = new Date();
+    let count = 0;
 
-  // TRACKS map: use TRACKS[id].id as Firestore key if present
-  Object.keys(TRACKS).forEach((uiKey) => {
-    const firestoreKey = TRACKS[uiKey]?.id || uiKey;
-    const normalized = trackHours[firestoreKey] || trackHours[uiKey];
-    if (normalized && isOpenNow(normalized, now)) count += 1;
-  });
+    Object.keys(TRACKS).forEach((uiKey) => {
+      const firestoreKey = TRACKS[uiKey]?.id || uiKey;
 
-  setTracksOpenNow(count);
-}, [trackHours]);
+      const normalized = (trackHours && (trackHours[firestoreKey] || trackHours[uiKey])) || null;
+      if (normalized) {
+        if (isOpenNow(normalized, now)) count += 1;
+        return;
+      }
 
-// ✅ Derive "Tracks Open" using normalized hours when available; fall back to trackDocs meta.isOpen
-useEffect(() => {
-  const now = new Date();
-  let count = 0;
+      const meta = trackDocs[uiKey];
+      if (meta && typeof meta.isOpen === 'boolean') {
+        if (meta.isOpen) count += 1;
+      }
+    });
 
-  Object.keys(TRACKS).forEach((uiKey) => {
-    const firestoreKey = TRACKS[uiKey]?.id || uiKey;
+    setTracksOpenNow((prev) => (prev !== count ? count : prev));
+  }, [trackHours, trackDocs]);
 
-    const normalized = (trackHours && (trackHours[firestoreKey] || trackHours[uiKey])) || null;
-    if (normalized) {
-      // Preferred: normalized hours + isOpenNow
-      if (isOpenNow(normalized, now)) count += 1;
-      return;
-    }
-
-    // Fallback: use the meta we already computed for the cards
-    const meta = trackDocs[uiKey];
-    if (meta && typeof meta.isOpen === 'boolean') {
-      if (meta.isOpen) count += 1;
-      return;
-    }
-
-    // If nothing available, assume closed for now
-  });
-
-  setTracksOpenNow((prev) => (prev !== count ? count : prev));
-}, [trackHours, trackDocs]);
-
-
-
+  // ---- Build per-track progress from tasksToday ----
+  const perTrackProgress = useMemo(() => {
+    const map = {};
+    tasksToday.forEach((t) => {
+      const track = t.assignedTrack;
+      if (!track) return;
+      if (!map[track]) map[track] = { total: 0, completed: 0, pct: 0 };
+      map[track].total += 1;
+      const done = Array.isArray(t.completedBy) && t.completedBy.length > 0;
+      if (done) map[track].completed += 1;
+    });
+    Object.keys(map).forEach((k) => {
+      const { total, completed } = map[k];
+      map[k].pct = total === 0 ? 0 : Math.round((completed / total) * 100);
+    });
+    return map;
+  }, [tasksToday]);
 
   // FIX: match duty counts by id, firestore id, and case-insensitive match
   const getDutyCount = (uiKey) => {
@@ -426,6 +365,35 @@ useEffect(() => {
     }
     return 0;
   };
+
+  // Compute display name/note from hours/meta
+  function computeIsOpenFromHours(hours, now = new Date()) {
+    if (!hours) return { isOpen: false, note: 'No hours set' };
+
+    const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+    const dKey = days[now.getDay()];
+    const day = hours[dKey];
+    if (!day || day.closed) return { isOpen: false, note: 'Closed today' };
+
+    const parseHM = (s) => {
+      if (!s || !s.includes(':')) return null;
+      const [h, m] = s.split(':').map(Number);
+      return { h, m };
+    };
+
+    const o = parseHM(day.open);
+    const c = parseHM(day.close);
+    if (!o || !c) return { isOpen: false, note: 'Invalid hours' };
+
+    const toMinutes = (h, m) => h * 60 + m;
+    const nowMins = now.getHours() * 60 + now.getMinutes();
+    const openMins = toMinutes(o.h, o.m);
+    const closeMins = toMinutes(c.h, c.m);
+
+    const isOpen = nowMins >= openMins && nowMins < closeMins;
+    const note = isOpen ? `Open until ${day.close}` : `Opens ${day.open}`;
+    return { isOpen, note };
+  }
 
   return (
     <>
@@ -461,20 +429,19 @@ useEffect(() => {
         </div>
 
         <div
-  className="glass-card info-bar-card"
-  style={{
-    width: '100%',
-    flexBasis: '100%',
-    gridColumn: '1 / -1',
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: '12px',
-    padding: '12px',
-    fontSize: '0.85rem',
-    marginTop: '10px'
-  }}
->
-
+          className="glass-card info-bar-card"
+          style={{
+            width: '100%',
+            flexBasis: '100%',
+            gridColumn: '1 / -1',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '12px',
+            padding: '12px',
+            fontSize: '0.85rem',
+            marginTop: '10px'
+          }}
+        >
           <div>📋 Total Tasks Today: <strong>{totalTasksToday}</strong></div>
           <div>✅ Tasks Completed: <strong>{tasksCompletedToday}</strong></div>
           <div>🕒 Clocked-in Employees: <strong>{clockedInEmployees}</strong></div>
@@ -498,6 +465,7 @@ useEffect(() => {
                 const trackKey = TRACKS[id]?.id || id;
                 const normalized = trackHours[trackKey];
 
+                // Determine open/closed label
                 let statusOpen = meta.isOpen;
                 let statusNote = meta.note || 'No hours set';
 
@@ -511,7 +479,13 @@ useEffect(() => {
                 }
 
                 const openClass = statusOpen ? 'dot-open' : 'dot-closed';
-                const percent = meta.completionPercent ?? 0;
+
+                // Prefer live progress from tasksToday; fall back to meta.completionPercent
+                const live = perTrackProgress[trackKey] || perTrackProgress[id] || { pct: null };
+                const percent = (typeof live.pct === 'number')
+                  ? live.pct
+                  : (meta.completionPercent ?? 0);
+
                 const dutyCount = loadingDuty ? '…' : getDutyCount(id);
 
                 return (
