@@ -30,7 +30,7 @@ export default function TopNav() {
   const adminButtons = [
     { label: 'Dashboard', path: '/admin-dashboard' },
     { label: 'HR & Employees', path: '/admin-leave' },
-    { label: 'H&S Review', path: '/safety-review' },
+    //{ label: 'H&S Review', path: '/safety-review' },
     { label: 'Stock Room', path: '/stockroom' },
     { label: 'Task Creator', path: '/admin-task-manager' },
 

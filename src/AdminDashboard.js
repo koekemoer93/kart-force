@@ -489,7 +489,17 @@ export default function AdminDashboard() {
                 const dutyCount = loadingDuty ? '…' : getDutyCount(id);
 
                 return (
-                  <div key={id} className="track-card">
+                  <div
+                    key={id}
+                    className="track-card"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => navigate(`/track-details/${trackKey}`)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/track-details/${trackKey}`); }}
+                    style={{ cursor: 'pointer' }}
+                    aria-label={`Open details for ${t?.displayName || id}`}
+                    title={`Open details for ${t?.displayName || id}`}
+                  >
                     <div className="card track">
                       <div className="row between wrap gap12">
                         <div className="row gap12 center">

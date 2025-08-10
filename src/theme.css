@@ -310,3 +310,52 @@ img { max-width: 100%; height: auto; }
 .welcome-card {
   margin-bottom: 8px;
 }
+
+/* --- AdminLeavePanel filters & dark form controls --- */
+.input,
+select,
+input[type="text"],
+input[type="search"] {
+  background: rgba(40, 40, 40, 0.85); /* dark glass */
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.input:focus,
+select:focus,
+input[type="text"]:focus,
+input[type="search"]:focus {
+  border-color: #24ff98; /* your green accent */
+  background: rgba(55, 55, 55, 0.95);
+}
+
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 28px; /* room for dropdown arrow */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='%23ccc'%3E%3Cpath d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 10px 6px;
+}
+
+.button-primary {
+  background: #24ff98;
+  color: #000;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background 0.2s;
+}
+
+.button-primary:hover {
+  background: #1fd685;
+}
