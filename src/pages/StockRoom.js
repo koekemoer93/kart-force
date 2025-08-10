@@ -16,14 +16,7 @@ import {
 import { createItem, receiveStock } from '../services/inventory';
 import { isAdmin, isWorkerLike } from '../utils/roles';
 
-/**
- * IMPORTANT CHANGE:
- * - Fulfillment uses one Firestore transaction where ALL reads happen before ANY writes.
- * - Supports request.items lines with either { itemId, qty, ... } OR just { name, qty, ... }.
- */
-
 export default function StockRoom() {
-  // ✅ Single source of truth for role
   const { user, profile, role: ctxRole } = useAuth();
   const effectiveRole = ctxRole || profile?.role || '';
   const admin = isAdmin(effectiveRole);
@@ -42,6 +35,17 @@ export default function StockRoom() {
     initialQty: 0,
   });
   const [receive, setReceive] = useState({ itemId: '', qty: 0, reason: 'receive' });
+
+  // 🔎 filters/sort
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState('name'); // name|qty|minQty|maxQty|category
+  const [sortDir, setSortDir] = useState('asc'); // asc|desc
+  const [showLowStockOnly, setShowLowStockOnly] = useState(false);
+
+  // 🆕 view controls
+  const [density, setDensity] = useState('cozy'); // cozy|compact
+  const [viewMode, setViewMode] = useState('cards'); // cards|list
 
   // Live inventory + requests
   useEffect(() => {
@@ -67,7 +71,6 @@ export default function StockRoom() {
 
   const pendingReqs = useMemo(() => reqs.filter((r) => r.status === 'pending'), [reqs]);
 
-  // Fast lookups for fulfill handler (supports requests that only have item 'name')
   const itemsById = useMemo(() => {
     const map = new Map();
     items.forEach((it) => map.set(it.id, it));
@@ -79,6 +82,63 @@ export default function StockRoom() {
     items.forEach((it) => map.set(String(it.name || '').toLowerCase(), it));
     return map;
   }, [items]);
+
+  // category options + counts
+  const categoryCounts = useMemo(() => {
+    const counts = {};
+    for (const it of items) {
+      const cat = (it.category || 'uncategorised').toLowerCase();
+      counts[cat] = (counts[cat] || 0) + 1;
+    }
+    return counts;
+  }, [items]);
+
+  const categoryOptions = useMemo(() => {
+    const keys = Object.keys(categoryCounts).sort();
+    return ['all', ...keys];
+  }, [categoryCounts]);
+
+  // visible list after filter/search/sort
+  const visibleItems = useMemo(() => {
+    const s = search.trim().toLowerCase();
+    let arr = items.slice();
+
+    if (categoryFilter !== 'all') {
+      arr = arr.filter((it) => String(it.category || '').toLowerCase() === categoryFilter.toLowerCase());
+    }
+
+    if (s) {
+      arr = arr.filter((it) => {
+        const hay = [it.name, it.category, it.unit].filter(Boolean).join(' ').toLowerCase();
+        return hay.includes(s);
+      });
+    }
+
+    if (showLowStockOnly) {
+      arr = arr.filter((it) => Number(it.qty || 0) <= Number(it.minQty || 0));
+    }
+
+    const dir = sortDir === 'desc' ? -1 : 1;
+    arr.sort((a, b) => {
+      const av = (sortBy === 'name' || sortBy === 'category')
+        ? String(a[sortBy] || '').toLowerCase()
+        : Number(a[sortBy] || 0);
+      const bv = (sortBy === 'name' || sortBy === 'category')
+        ? String(b[sortBy] || '').toLowerCase()
+        : Number(b[sortBy] || 0);
+
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      // secondary sort by name to keep stable order
+      const an = String(a.name || '').toLowerCase();
+      const bn = String(b.name || '').toLowerCase();
+      if (an < bn) return -1;
+      if (an > bn) return 1;
+      return 0;
+    });
+
+    return arr;
+  }, [items, categoryFilter, search, sortBy, sortDir, showLowStockOnly]);
 
   async function handleCreateItem(e) {
     e.preventDefault();
@@ -94,14 +154,7 @@ export default function StockRoom() {
       };
       if (!payload.name) return alert('Item name required.');
       await createItem(payload);
-      setNewItem({
-        name: '',
-        unit: 'pcs',
-        category: 'essentials',
-        minQty: 0,
-        maxQty: 0,
-        initialQty: 0,
-      });
+      setNewItem({ name: '', unit: 'pcs', category: 'essentials', minQty: 0, maxQty: 0, initialQty: 0 });
     } catch (err) {
       console.error(err);
       alert(err.message);
@@ -123,17 +176,10 @@ export default function StockRoom() {
     }
   }
 
-  /**
-   * ✅ NEW: Safe fulfill using a single transaction.
-   * - Reads every needed doc first using tx.get(...)
-   * - Then performs tx.update(...) writes
-   * - Validates stock (no negatives)
-   */
   async function handleFulfill(requestId) {
     if (!admin) return alert('Admin only.');
     try {
       await runTransaction(db, async (tx) => {
-        // --- 1) READ all docs first -----------------------
         const reqRef = doc(db, 'supplyRequests', requestId);
         const reqSnap = await tx.get(reqRef);
         if (!reqSnap.exists()) throw new Error('Request not found.');
@@ -145,15 +191,13 @@ export default function StockRoom() {
         const itemsInReq = Array.isArray(request.items) ? request.items : [];
         if (itemsInReq.length === 0) throw new Error('Request has no items.');
 
-        // Build the list of inventory refs to read, resolving by itemId OR by name.
         const invRefs = [];
-        const resolved = []; // { idx, ref, qtyToDeduct, label, unit }
+        const resolved = [];
 
         itemsInReq.forEach((it, idx) => {
           const qty = Number(it.qty || 0);
-          if (!qty || qty <= 0) return; // skip invalid lines
+          if (!qty || qty <= 0) return;
 
-          // Prefer itemId if present
           let invDocId = it.itemId;
           if (!invDocId && it.name) {
             const found = itemsByNameLower.get(String(it.name).toLowerCase());
@@ -165,51 +209,25 @@ export default function StockRoom() {
 
           const ref = doc(db, 'inventory', invDocId);
           invRefs.push(ref);
-          resolved.push({
-            idx,
-            ref,
-            qtyToDeduct: qty,
-            label: it.name || invDocId,
-            unit: it.unit || itemsById.get(invDocId)?.unit || '',
-          });
+          resolved.push({ idx, ref, qtyToDeduct: qty, label: it.name || invDocId, unit: it.unit || itemsById.get(invDocId)?.unit || '' });
         });
 
-        // Read all inventory docs (still READ phase)
         const invSnaps = [];
-        for (const ref of invRefs) {
-          const snap = await tx.get(ref);
-          invSnaps.push(snap);
-        }
+        for (const ref of invRefs) invSnaps.push(await tx.get(ref));
 
-        // --- 2) VALIDATE & PREPARE new values -------------
-        const updates = []; // { ref, newQty, label }
+        const updates = [];
         resolved.forEach((line, i) => {
           const snap = invSnaps[i];
-          if (!snap.exists()) {
-            throw new Error(`Inventory doc missing for "${line.label}".`);
-          }
+          if (!snap.exists()) throw new Error(`Inventory doc missing for "${line.label}".`);
           const data = snap.data();
           const current = Number(data.qty ?? 0);
           const newQty = current - line.qtyToDeduct;
-          if (newQty < 0) {
-            throw new Error(
-              `Not enough stock for "${line.label}" — need ${line.qtyToDeduct}, have ${current}.`
-            );
-          }
-          updates.push({ ref: line.ref, newQty, label: line.label });
+          if (newQty < 0) throw new Error(`Not enough stock for "${line.label}" — need ${line.qtyToDeduct}, have ${current}.`);
+          updates.push({ ref: line.ref, newQty });
         });
 
-        // --- 3) WRITE updates (after ALL reads) -----------
-        updates.forEach((u) => {
-          tx.update(u.ref, { qty: u.newQty });
-        });
-
-        // Mark request fulfilled
-        tx.update(reqRef, {
-          status: 'fulfilled',
-          fulfilledAt: serverTimestamp(),
-          fulfilledBy: user?.uid || null,
-        });
+        updates.forEach((u) => tx.update(u.ref, { qty: u.newQty }));
+        tx.update(reqRef, { status: 'fulfilled', fulfilledAt: serverTimestamp(), fulfilledBy: user?.uid || null });
       });
 
       alert('Stock deducted and request fulfilled ✔');
@@ -226,32 +244,164 @@ export default function StockRoom() {
         {/* Inventory Overview */}
         <div className="glass-card progress-summary-card" style={{ gridColumn: '1 / -1' }}>
           <h3 style={{ marginTop: 0 }}>Central Stock — Overview</h3>
-          <div className="grid tracks-grid">
-            {items.map((it) => (
-              <div key={it.id} className="track-card">
-                <div className="card track">
-                  <div className="row between wrap gap12">
-                    <h4 className="track-name" style={{ margin: 0 }}>
-                      {it.name}
-                    </h4>
-                    <span className="small muted">
-                      {it.category} · {it.unit}
-                    </span>
-                  </div>
-                  <div style={{ marginTop: 10 }}>
-                    <StockProgress qty={it.qty || 0} minQty={it.minQty || 0} maxQty={it.maxQty || 0} />
-                    <div className="row between" style={{ marginTop: 6 }}>
-                      <span className="small muted">On hand</span>
-                      <span className="small">
-                        {it.qty || 0} {it.unit}
+
+          {/* Toolbar: filter/search/sort + view & density */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 1fr auto auto auto', gap: 10, marginBottom: 12 }}>
+            <select
+              className="input-field"
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              title="Filter by category"
+            >
+              {categoryOptions.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt === 'all' ? `All categories (${items.length})` : `${opt} (${categoryCounts[opt] || 0})`}
+                </option>
+              ))}
+            </select>
+
+            <input
+              className="input-field"
+              placeholder="Search items (name, category, unit)…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              title="Search"
+            />
+
+            <select
+              className="input-field"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              title="Sort by"
+            >
+              <option value="name">Sort: Name</option>
+              <option value="qty">Sort: Quantity</option>
+              <option value="minQty">Sort: Min Qty</option>
+              <option value="maxQty">Sort: Max Qty</option>
+              <option value="category">Sort: Category</option>
+            </select>
+
+<button
+  type="button"
+  className={`btn-toggle ${sortDir === 'desc' ? 'is-active' : ''}`}
+  onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+  title="Toggle sort direction"
+  aria-pressed={sortDir === 'desc'}
+>
+  {sortDir === 'asc' ? 'Asc ↑' : 'Desc ↓'}
+</button>
+
+
+            <select
+              className="input-field"
+              value={viewMode}
+              onChange={(e) => setViewMode(e.target.value)}
+              title="View mode"
+            >
+              <option value="cards">View: Cards</option>
+              <option value="list">View: List</option>
+            </select>
+
+            <select
+              className="input-field"
+              value={density}
+              onChange={(e) => setDensity(e.target.value)}
+              title="Density"
+            >
+              <option value="cozy">Density: Cozy</option>
+              <option value="compact">Density: Compact</option>
+            </select>
+
+            <label
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: '0.9rem', opacity: 0.9 }}
+              title="Show items at or below minimum level"
+            >
+              <input
+                type="checkbox"
+                checked={showLowStockOnly}
+                onChange={(e) => setShowLowStockOnly(e.target.checked)}
+              />
+              Low stock only
+            </label>
+          </div>
+
+          {/* Cards view */}
+          {viewMode === 'cards' && (
+            <div
+              className={`grid tracks-grid ${density === 'compact' ? 'stock-compact' : ''}`}
+              style={{ ['--col-min']: density === 'compact' ? '220px' : '260px' }}
+            >
+              {visibleItems.map((it) => (
+                <div key={it.id} className="track-card">
+                  <div className="card track">
+                    <div className="row between wrap gap12">
+                      <h4 className="track-name ellipsis" title={it.name} style={{ margin: 0 }}>
+                        {it.name}
+                      </h4>
+                      <span className="small muted ellipsis" title={`${it.category || 'uncategorised'} · ${it.unit}`}>
+                        {it.category || 'uncategorised'} · {it.unit}
                       </span>
+                    </div>
+                    <div style={{ marginTop: density === 'compact' ? 6 : 10 }}>
+                      <StockProgress qty={it.qty || 0} minQty={it.minQty || 0} maxQty={it.maxQty || 0} />
+                      <div className="row between" style={{ marginTop: density === 'compact' ? 4 : 6 }}>
+                        <span className="small muted">On hand</span>
+                        <span className="small">
+                          {it.qty || 0} {it.unit}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
-            {items.length === 0 && <p className="muted">No items yet.</p>}
-          </div>
+              ))}
+              {visibleItems.length === 0 && <p className="muted">No items match your filters.</p>}
+            </div>
+          )}
+
+          {/* List view (super compact) */}
+          {viewMode === 'list' && (
+            <div className="glass-subcard" style={{ overflowX: 'auto' }}>
+              <table className={`table dark ${density === 'compact' ? 'table-compact' : ''}`} style={{ width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left' }}>Name</th>
+                    <th>Category</th>
+                    <th>Unit</th>
+                    <th>Qty</th>
+                    <th>Min</th>
+                    <th>Max</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleItems.map((it) => {
+                    const qty = Number(it.qty || 0);
+                    const min = Number(it.minQty || 0);
+                    const max = Number(it.maxQty || 0);
+                    const low = qty <= min;
+                    return (
+                      <tr key={it.id}>
+                        <td className="ellipsis" title={it.name}>{it.name}</td>
+                        <td className="muted">{it.category || '—'}</td>
+                        <td className="muted">{it.unit || '—'}</td>
+                        <td>{qty}</td>
+                        <td className="muted">{min}</td>
+                        <td className="muted">{max || '—'}</td>
+                        <td>
+                          <span className="chip" style={{ background: low ? '#ff6b6b' : '#2f2f2f' }}>
+                            {low ? 'Low' : 'OK'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {visibleItems.length === 0 && (
+                    <tr><td colSpan={7} className="muted" style={{ textAlign: 'center' }}>No items match your filters.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         {/* Left: Add new item + Receive stock */}
@@ -304,9 +454,7 @@ export default function StockRoom() {
                 onChange={(e) => setNewItem({ ...newItem, initialQty: e.target.value })}
               />
             </div>
-            <button className="button-primary" type="submit">
-              Save Item
-            </button>
+            <button className="button-primary" type="submit">Save Item</button>
           </form>
 
           <hr style={{ borderColor: 'rgba(255,255,255,0.1)', margin: '18px 0' }} />
@@ -320,9 +468,7 @@ export default function StockRoom() {
             >
               <option value="">Select item…</option>
               {items.map((it) => (
-                <option key={it.id} value={it.id}>
-                  {it.name}
-                </option>
+                <option key={it.id} value={it.id}>{it.name}</option>
               ))}
             </select>
             <div className="row gap12">
@@ -340,9 +486,7 @@ export default function StockRoom() {
                 onChange={(e) => setReceive({ ...receive, reason: e.target.value })}
               />
             </div>
-            <button className="button-primary" type="submit">
-              Add to Inventory
-            </button>
+            <button className="button-primary" type="submit">Add to Inventory</button>
           </form>
         </div>
 

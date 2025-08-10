@@ -359,3 +359,70 @@ select {
 .button-primary:hover {
   background: #1fd685;
 }
+
+/* StockRoom density + list view */
+.grid.tracks-grid {
+  grid-template-columns: repeat(auto-fill, minmax(var(--col-min, 260px), 1fr));
+}
+
+.stock-compact .card.track {
+  padding: 10px;
+}
+.stock-compact .track-name {
+  font-size: 0.95rem;
+}
+.ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Simple dark table */
+.table.dark {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  font-size: 0.95rem;
+}
+.table.dark thead th {
+  text-align: left;
+  font-weight: 600;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.04);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.table.dark tbody td {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.table.dark tr:hover td {
+  background: rgba(255,255,255,0.03);
+}
+.table-compact thead th { padding: 8px 10px; }
+.table-compact tbody td { padding: 6px 10px; }
+
+/* --- StockRoom toolbar toggle (neutral, glassy, theme-consistent) --- */
+.btn-toggle {
+  background: rgba(255, 255, 255, 0.04);
+  color: #e7e7e7;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 10px;
+  padding: 6px 12px;
+  font-weight: 600;
+  transition: background 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
+}
+.btn-toggle:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+.btn-toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(36, 255, 152, 0.22); /* uses your green accent softly */
+}
+
+/* Active state uses accent subtly (no full solid fill) */
+.btn-toggle.is-active {
+  color: #24ff98;
+  border-color: #24ff98;
+  background: rgba(36, 255, 152, 0.06);
+}
