@@ -20,7 +20,7 @@ export default function StockRoom() {
   const { user, profile, role: ctxRole } = useAuth();
   const effectiveRole = ctxRole || profile?.role || '';
   const admin = isAdmin(effectiveRole);
-  const workerLike = isWorkerLike(effectiveRole);
+  const workerLike = isWorkerLike(effectiveRole); // kept for future rules/UI gates
 
   const [items, setItems] = useState([]);
   const [reqs, setReqs] = useState([]);
@@ -255,7 +255,10 @@ export default function StockRoom() {
           <h3 style={{ marginTop: 0 }}>Central Stock — Overview</h3>
 
           {/* Toolbar: filter/search/sort + view & density */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 1fr auto auto auto', gap: 10, marginBottom: 12 }}>
+          <div
+            className="stock-toolbar"
+            style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 1fr auto auto auto', gap: 10, marginBottom: 12 }}
+          >
             <select
               className="input-field"
               value={categoryFilter}
@@ -363,15 +366,16 @@ export default function StockRoom() {
                         value={newItem.unit}
                         onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
                       />
-                      <select
-                        className="input-field"
-                        value={newItem.category}
-                        onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
-                      >
-                        <option value="drinks">drinks</option>
-                        <option value="spares">spares</option>
-                        <option value="essentials">essentials</option>
-                      </select>
+                     <select
+  className="input-field"
+  value={newItem.category}
+  onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
+>
+  <option value="drinks">drinks</option>
+  <option value="spares - chassis">spares - chassis</option>
+  <option value="spares - drivetrain">spares - drivetrain</option>
+  <option value="essentials">essentials</option>
+</select>
                     </div>
                     <div className="row gap12">
                       <input

@@ -456,3 +456,167 @@ select {
 .glass-subcard h3 {
   margin: 0 0 8px 0;
 }
+
+/* --- StockRoom responsive tweaks --- */
+.stock-toolbar {
+  /* desktop grid is set inline; we only override at smaller widths */
+}
+
+@media (max-width: 1100px) {
+  .stock-toolbar {
+    grid-template-columns: 1fr 1fr !important; /* two columns on tablets */
+    grid-auto-rows: auto;
+  }
+  .stock-toolbar > * {
+    min-width: 0; /* prevent inputs from overflowing */
+  }
+}
+
+@media (max-width: 720px) {
+  .stock-toolbar {
+    grid-template-columns: 1fr !important; /* single column on phones */
+    row-gap: 8px;
+  }
+  .btn-toggle {
+    padding: 8px 10px;
+    line-height: 1.1;
+  }
+}
+
+/* Actions row: Stock Actions + Pending Requests */
+.stock-actions-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr; /* desktop */
+  gap: 12px;
+}
+
+.actions-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr; /* Add + Receive side by side */
+  gap: 12px;
+}
+
+@media (max-width: 1100px) {
+  .stock-actions-grid {
+    grid-template-columns: 1fr; /* stack Stock Actions over Pending */
+  }
+}
+
+@media (max-width: 720px) {
+  .actions-two-col {
+    grid-template-columns: 1fr; /* stack Add + Receive inside the card */
+  }
+  .glass-subcard h3,
+  .glass-subcard h4 {
+    margin-bottom: 6px;
+  }
+  .input-field {
+    font-size: 0.95rem; /* keep placeholders readable without clipping */
+  }
+  .button-primary {
+    padding: 10px 12px;
+    font-size: 0.95rem;
+  }
+}
+
+/* --- Mobile Splash --- */
+.splash-root {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  transition: opacity 280ms ease;
+  opacity: 1;
+}
+
+.splash-fade {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.splash-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.65) 100%);
+  display: grid;
+  place-items: end center;
+  padding-bottom: 10vh;
+}
+
+.splash-brand {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  backdrop-filter: blur(6px);
+  background: rgba(20,20,20,0.35);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 20px;
+  padding: 14px 16px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+}
+
+.splash-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+
+.splash-title {
+  font-family: Merriweather, serif;
+  color: #fff;
+  letter-spacing: 0.5px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  opacity: 0.95;
+}
+
+/* ===== Mobile Splash (Kart Force) ===== */
+.kf-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #000; /* base while image loads */
+  display: grid;
+  place-items: center;
+  opacity: 1;
+  transition: opacity 280ms ease;
+}
+
+/* Fade out */
+.kf-splash--fade {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.kf-splash__brand {
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  padding: 18px 22px;
+  border-radius: 24px;
+  background: rgba(0,0,0,0.35);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.45);
+}
+
+.kf-splash__img {
+  width: min(70vw, 280px);
+  height: auto;
+  object-fit: contain;
+  border-radius: 18px;
+}
+
+.kf-splash__title {
+  font-family: Merriweather, serif;
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  font-size: 1.1rem;
+  opacity: 0.95;
+  text-shadow: 0 2px 12px rgba(0,0,0,0.6);
+}
+
+/* Ensure forms under it don't scroll the page while visible */
+body:has(.kf-splash) {
+  overflow: hidden;
+}

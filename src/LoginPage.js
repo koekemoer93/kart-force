@@ -8,6 +8,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { signInWithEmailAndPassword, setPersistence, inMemoryPersistence } from 'firebase/auth';
 import { isAdmin as isAdminFn, isWorkerLike as isWorkerLikeFn } from './utils/roles';
+import SplashOverlay from "./components/SplashOverlay";
+
 
 const GEOFENCE_RADIUS_M = 300;
 const GEO_OPTS = {
@@ -244,6 +246,10 @@ export default function LoginPage() {
   };
 
   return (
+  <>
+    {/* Mobile splash (fades after ~1.5s; skipped if authenticated) */}
+    <SplashOverlay skipIfAuthenticated={!!user} />
+
     <div className="main-wrapper">
       <div className="glass-card">
         <h2 style={{ textAlign: 'center' }}>Login to Kart Force</h2>
@@ -255,6 +261,7 @@ export default function LoginPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
+            autoComplete="email"
           />
           <input
             className="input-field"
@@ -263,13 +270,16 @@ export default function LoginPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
+            autoComplete="current-password"
           />
           <button className="button-primary" type="submit" disabled={loading}>
             {loading ? 'Logging in...' : 'Login'}
           </button>
-          {error && <p style={{ color: 'red', marginTop: 12 }}>{error}</p>}
+          {error && <p style={{ color: 'salmon', marginTop: 12 }}>{error}</p>}
         </form>
       </div>
     </div>
-  );
+  </>
+);
+
 }
