@@ -593,7 +593,7 @@ function AdminLeavePanel() {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div className="glass-card" style={{ padding: 12 }}>
-                  <h4 style={{ marginTop: 0 }}>Overtime (> {stdHours}h/day)</h4>
+                  <h4 style={{ marginTop: 0 }}>Overtime ( {stdHours}h/day)</h4>
                   {overtimeRows.length === 0 ? (
                     <p>No overtime entries.</p>
                   ) : (

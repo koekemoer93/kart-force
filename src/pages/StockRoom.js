@@ -415,7 +415,7 @@ export default function StockRoom() {
               {categoryOptions.map((opt) => (
                 <option key={opt} value={opt}>
                   {opt === 'all'
-                    ? `Choose category`
+                    ? `Choose category (${items.length})`
                     : `${opt} (${categoryCounts[opt] || 0})`}
                 </option>
               ))}
@@ -442,9 +442,9 @@ export default function StockRoom() {
                   <th>Category</th>
                   <th>Unit</th>
                   <th>Qty</th>
-                  <th>Min</th>
-                  <th>Max</th>
-                  <th>Status</th>
+              
+      
+                  
                 </tr>
               </thead>
               <tbody>
@@ -457,10 +457,9 @@ export default function StockRoom() {
                     <tr key={it.id}>
                       <td data-label="Name" className="ellipsis" title={it.name}>{it.name}</td>
                       <td data-label="Category" className="muted">{it.category || '—'}</td>
-                      <td data-label="Unit" className="muted">{it.unit || '—'}</td>
+                     
                       <td data-label="Qty">{qty}</td>
-                      <td data-label="Min" className="muted">{min}</td>
-                      <td data-label="Max" className="muted">{max || '—'}</td>
+                     
                       <td data-label="Status">
                         <span className="chip" style={{ background: low ? '#ff6b6b' : '#2f2f2f' }}>
                           {low ? 'Low' : 'OK'}
