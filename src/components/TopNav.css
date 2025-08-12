@@ -116,3 +116,133 @@
     font-size: 0.85rem;
   }
 }
+/* === Hamburger + Drawer (mobile) === */
+.hamburger {
+  display: none;              /* hidden on desktop */
+  width: 40px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--panel, #17181a);
+  border: 1px solid var(--border, #2a2d31);
+  margin-left: 8px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.hamburger span {
+  display: block;
+  width: 18px;
+  height: 2px;
+  background: var(--text, #f5f5f7);
+  border-radius: 2px;
+}
+
+/* Backdrop */
+.mobile-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s ease-out;
+  z-index: 999;
+}
+.mobile-backdrop.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Drawer */
+.mobile-drawer {
+  position: fixed;
+  top: 0;
+  right: -84vw;
+  width: 84vw;
+  max-width: 360px;
+  height: 100vh;
+  background: var(--panel-2, #1d1f22);
+  border-left: 1px solid var(--border, #2a2d31);
+  box-shadow: -12px 0 24px rgba(0,0,0,0.35);
+  transition: right .22s ease-out;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+}
+.mobile-drawer.open { right: 0; }
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 14px;
+  border-bottom: 1px solid var(--border, #2a2d31);
+}
+.drawer-brand {
+  font-weight: 800;
+  font-size: 16px;
+}
+.drawer-close {
+  background: transparent;
+  color: var(--text, #f5f5f7);
+  font-size: 28px;
+  line-height: 1;
+  border: none;
+  cursor: pointer;
+}
+
+.drawer-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border-bottom: 1px solid var(--border, #2a2d31);
+}
+.drawer-user-meta .name { font-weight: 700; }
+.drawer-user-meta .role { font-size: 12px; color: var(--muted, #a1a1aa); }
+
+.drawer-links {
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  gap: 8px;
+  overflow-y: auto;
+  flex: 1;
+}
+.drawer-link {
+  text-align: left;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--panel, #17181a);
+  border: 1px solid var(--border, #2a2d31);
+  color: var(--text, #f5f5f7);
+}
+.drawer-link:hover { background: var(--panel-2, #1d1f22); }
+
+.drawer-footer {
+  padding: 10px;
+  border-top: 1px solid var(--border, #2a2d31);
+}
+.drawer-logout {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #ff6b6b;
+  color: #000;
+  font-weight: 800;
+}
+
+/* --- Responsive behavior --- */
+@media (max-width: 960px) {
+  /* hide center nav strip, use hamburger instead */
+  .topnav .center { display: none; }
+
+  /* hide Logout button on right (it appears inside drawer) */
+  .topnav .right .nav-btn { display: none; }
+
+  /* show hamburger */
+  .hamburger { display: inline-flex; }
+
+  /* keep avatar visible on the right */
+  .topnav .right { display: flex; align-items: center; gap: 8px; }
+}
