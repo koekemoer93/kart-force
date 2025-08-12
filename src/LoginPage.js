@@ -9,7 +9,7 @@ import { useAuth } from './AuthContext';
 import { signInWithEmailAndPassword, setPersistence, inMemoryPersistence } from 'firebase/auth';
 import { isAdmin as isAdminFn, isWorkerLike as isWorkerLikeFn } from './utils/roles';
 import SplashOverlay from "./components/SplashOverlay";
-
+import { Link } from 'react-router-dom';
 
 const GEOFENCE_RADIUS_M = 300;
 const GEO_OPTS = {
@@ -272,6 +272,15 @@ export default function LoginPage() {
             required
             autoComplete="current-password"
           />
+
+          <div style={{ marginTop: 12, textAlign: 'center' }}>
+  <span style={{ color: 'var(--muted, #a1a1aa)', fontSize: 14 }}>
+    New here?{' '}
+    <Link to="/register" style={{ color: 'var(--text, #f5f5f7)', textDecoration: 'underline' }}>
+      Create an account
+    </Link>
+  </span>
+</div>
           <button className="button-primary" type="submit" disabled={loading}>
             {loading ? 'Logging in...' : 'Login'}
           </button>

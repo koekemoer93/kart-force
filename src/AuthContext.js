@@ -6,6 +6,8 @@ import { auth, db } from './firebase';
 import { onAuthStateChanged, updateProfile } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import { isAdmin as isAdminFn, isWorkerLike as isWorkerLikeFn } from './utils/roles';
+import { getRole } from './utils/roles';
+import { isKnownRole } from './utils/roles';
 
 const AuthContext = createContext(null);
 
@@ -84,12 +86,13 @@ export const AuthProvider = ({ children }) => {
           const effective =
             ensured || (await getDoc(doc(db, 'users', authUser.uid))).data();
 
-          // Normalize role here (lowercase + trim + validate)
-          const normalized = normalizeRole(effective?.role);
-          setRole(normalized);
+        
 
-          setUser(authUser);
-          setProfile(effective);
+          // Normalize role using centralized helpers
+           const normalized = getRole(effective?.role);
+             setRole(isKnownRole(normalized) ? normalized : null);
+             setUser(authUser);
+             setProfile({ ...effective, role: isKnownRole(normalized) ? normalized : null });
 
           // Keep Auth displayName/photo in sync if Firestore has them
           const wantsDisplay = effective?.displayName || authUser.displayName || '';

@@ -22,8 +22,8 @@ import TaskSeeder from './pages/TaskSeeder';
 import { isAdmin as isAdminFn, isWorkerLike as isWorkerLikeFn } from './utils/roles';
 import AdminTaskSeeder from './pages/AdminTaskSeeder';
 import AdminTaskManager from './pages/AdminTaskManager';
-
-
+import AdminEmployeeSeeder from './pages/AdminEmployeeSeeder';
+import Register from './pages/Register';
 
 // ✅ Single, consistent guard using `require="admin" | "workerLike"`
 function ProtectedRoute({ children, require }) {
@@ -55,6 +55,7 @@ function App() {
           <Route path="/stockroom" element={<StockRoom />} />
           <Route path="/request-supplies" element={<SupplyRequest />} />
 
+
           {/* Admin-only */}
           <Route
             path="/admin-dashboard"
@@ -64,6 +65,15 @@ function App() {
               </ProtectedRoute>
             }
           />
+
+          <Route
+  path="/admin-employee-seeder"
+  element={
+    <ProtectedRoute isAdmin>
+      <AdminEmployeeSeeder />
+    </ProtectedRoute>
+  }
+/>
           <Route
   path="/admin-task-manager"
   element={
@@ -89,7 +99,14 @@ function App() {
             }
           />
       
-
+              <Route
+  path="/register"
+  element={
+    <ProtectedRoute isAdmin>
+      <Register />
+    </ProtectedRoute>
+  }
+/>
           <Route
   path="/admin-task-seeder"
   element={

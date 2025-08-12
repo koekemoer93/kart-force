@@ -20,7 +20,7 @@ export default function StockRoom() {
   const { user, profile, role: ctxRole } = useAuth();
   const effectiveRole = ctxRole || profile?.role || '';
   const admin = isAdmin(effectiveRole);
-  const workerLike = isWorkerLike(effectiveRole); // kept for future rules/UI gates
+  const workerLike = isWorkerLike(effectiveRole); // reserved for future UI gates
 
   const [items, setItems] = useState([]);
   const [reqs, setReqs] = useState([]);
@@ -43,7 +43,7 @@ export default function StockRoom() {
   const [sortDir, setSortDir] = useState('asc'); // asc|desc
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
 
-  // 🆕 view controls
+  // view controls
   const [density, setDensity] = useState('cozy'); // cozy|compact
   const [viewMode, setViewMode] = useState('cards'); // cards|list
 
@@ -104,7 +104,9 @@ export default function StockRoom() {
     let arr = items.slice();
 
     if (categoryFilter !== 'all') {
-      arr = arr.filter((it) => String(it.category || '').toLowerCase() === categoryFilter.toLowerCase());
+      arr = arr.filter(
+        (it) => String(it.category || '').toLowerCase() === categoryFilter.toLowerCase()
+      );
     }
 
     if (s) {
@@ -120,12 +122,14 @@ export default function StockRoom() {
 
     const dir = sortDir === 'desc' ? -1 : 1;
     arr.sort((a, b) => {
-      const av = (sortBy === 'name' || sortBy === 'category')
-        ? String(a[sortBy] || '').toLowerCase()
-        : Number(a[sortBy] || 0);
-      const bv = (sortBy === 'name' || sortBy === 'category')
-        ? String(b[sortBy] || '').toLowerCase()
-        : Number(b[sortBy] || 0);
+      const av =
+        sortBy === 'name' || sortBy === 'category'
+          ? String(a[sortBy] || '').toLowerCase()
+          : Number(a[sortBy] || 0);
+      const bv =
+        sortBy === 'name' || sortBy === 'category'
+          ? String(b[sortBy] || '').toLowerCase()
+          : Number(b[sortBy] || 0);
 
       if (av < bv) return -1 * dir;
       if (av > bv) return 1 * dir;
@@ -154,7 +158,14 @@ export default function StockRoom() {
       };
       if (!payload.name) return alert('Item name required.');
       await createItem(payload);
-      setNewItem({ name: '', unit: 'pcs', category: 'essentials', minQty: 0, maxQty: 0, initialQty: 0 });
+      setNewItem({
+        name: '',
+        unit: 'pcs',
+        category: 'essentials',
+        minQty: 0,
+        maxQty: 0,
+        initialQty: 0,
+      });
     } catch (err) {
       console.error(err);
       alert(err.message);
@@ -227,7 +238,10 @@ export default function StockRoom() {
           const data = snap.data();
           const current = Number(data.qty ?? 0);
           const newQty = current - line.qtyToDeduct;
-          if (newQty < 0) throw new Error(`Not enough stock for "${line.label}" — need ${line.qtyToDeduct}, have ${current}.`);
+          if (newQty < 0)
+            throw new Error(
+              `Not enough stock for "${line.label}" — need ${line.qtyToDeduct}, have ${current}.`
+            );
           updates.push({ ref: line.ref, newQty });
         });
 
@@ -254,10 +268,15 @@ export default function StockRoom() {
         <div className="glass-card progress-summary-card" style={{ gridColumn: '1 / -1' }}>
           <h3 style={{ marginTop: 0 }}>Central Stock — Overview</h3>
 
-          {/* Toolbar: filter/search/sort + view & density */}
+          {/* Toolbar: single-column on mobile via CSS */}
           <div
             className="stock-toolbar"
-            style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 1fr auto auto auto', gap: 10, marginBottom: 12 }}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1.2fr 1.4fr 1fr auto auto auto',
+              gap: 10,
+              marginBottom: 12,
+            }}
           >
             <select
               className="input-field"
@@ -267,7 +286,9 @@ export default function StockRoom() {
             >
               {categoryOptions.map((opt) => (
                 <option key={opt} value={opt}>
-                  {opt === 'all' ? `All categories (${items.length})` : `${opt} (${categoryCounts[opt] || 0})`}
+                  {opt === 'all'
+                    ? `All categories (${items.length})`
+                    : `${opt} (${categoryCounts[opt] || 0})`}
                 </option>
               ))}
             </select>
@@ -293,6 +314,7 @@ export default function StockRoom() {
               <option value="category">Sort: Category</option>
             </select>
 
+            {/* sort direction on its own row on mobile (CSS handles width) */}
             <button
               type="button"
               className={`btn-toggle ${sortDir === 'desc' ? 'is-active' : ''}`}
@@ -302,6 +324,20 @@ export default function StockRoom() {
             >
               {sortDir === 'asc' ? 'Asc ↑' : 'Desc ↓'}
             </button>
+
+            {/* Low stock checkbox always its own line on mobile */}
+            <label
+              className="low-stock"
+              title="Show items at or below minimum level"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+            >
+              <input
+                type="checkbox"
+                checked={showLowStockOnly}
+                onChange={(e) => setShowLowStockOnly(e.target.checked)}
+              />
+              Low stock only
+            </label>
 
             <select
               className="input-field"
@@ -322,33 +358,15 @@ export default function StockRoom() {
               <option value="cozy">Density: Cozy</option>
               <option value="compact">Density: Compact</option>
             </select>
-
-            <label
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: '0.9rem', opacity: 0.9 }}
-              title="Show items at or below minimum level"
-            >
-              <input
-                type="checkbox"
-                checked={showLowStockOnly}
-                onChange={(e) => setShowLowStockOnly(e.target.checked)}
-              />
-              Low stock only
-            </label>
           </div>
 
-          {/* --- Actions at the top: ONE container with two forms | Pending requests --- */}
-          <div className="stock-actions-grid" style={{ gridTemplateColumns: '2fr 1fr' }}>
-            {/* Combined: Add New Item + Receive Stock */}
-            <div className="glass-subcard">
+          {/* --- Actions + Pending Requests (stacked on mobile via CSS) --- */}
+          <div className="stock-actions-grid">
+            {/* Stock Actions */}
+            <div className="glass-subcard stock-actions-card">
+
               <h3>Stock Actions</h3>
-              <div
-                className="actions-two-col"
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  gap: 12,
-                }}
-              >
+              <div className="actions-two-col">
                 {/* Add New Item */}
                 <div>
                   <h4 style={{ margin: '6px 0 8px 0' }}>Add New Item</h4>
@@ -359,25 +377,25 @@ export default function StockRoom() {
                       value={newItem.name}
                       onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
                     />
-                    <div className="row gap12">
+                    <div className="row gap12" style={{ flexWrap: 'wrap' }}>
                       <input
                         className="input-field"
                         placeholder="Unit (e.g., can, pcs)"
                         value={newItem.unit}
                         onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
                       />
-                     <select
-  className="input-field"
-  value={newItem.category}
-  onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
->
-  <option value="drinks">drinks</option>
-  <option value="spares - chassis">spares - chassis</option>
-  <option value="spares - drivetrain">spares - drivetrain</option>
-  <option value="essentials">essentials</option>
-</select>
+                      <select
+                        className="input-field"
+                        value={newItem.category}
+                        onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
+                      >
+                        <option value="drinks">drinks</option>
+                        <option value="spares - chassis">spares - chassis</option>
+                        <option value="spares - drivetrain">spares - drivetrain</option>
+                        <option value="essentials">essentials</option>
+                      </select>
                     </div>
-                    <div className="row gap12">
+                    <div className="row gap12" style={{ flexWrap: 'wrap' }}>
                       <input
                         className="input-field"
                         type="number"
@@ -418,7 +436,7 @@ export default function StockRoom() {
                         <option key={it.id} value={it.id}>{it.name}</option>
                       ))}
                     </select>
-                    <div className="row gap12">
+                    <div className="row gap12" style={{ flexWrap: 'wrap' }}>
                       <input
                         className="input-field"
                         type="number"
@@ -447,7 +465,7 @@ export default function StockRoom() {
               ) : (
                 pendingReqs.map((r) => (
                   <div key={r.id} className="card-inner" style={{ padding: 8, marginBottom: 8 }}>
-                    <div className="row between">
+                    <div className="row between" style={{ alignItems: 'flex-start' }}>
                       <strong>{r.trackId}</strong>
                       <span className="small muted">{r.status}</span>
                     </div>
@@ -459,8 +477,12 @@ export default function StockRoom() {
                       ))}
                     </ul>
                     {admin && (
-                      <div className="row gap12" style={{ marginTop: 8 }}>
-                        <button className="button-primary" onClick={() => handleFulfill(r.id)}>
+                      <div className="pending-actions" style={{ marginTop: 10 }}>
+                        <button
+                          className="button-primary"
+                          style={{ width: '100%' }}
+                          onClick={() => handleFulfill(r.id)}
+                        >
                           Fulfill & Deduct Stock
                         </button>
                       </div>
@@ -475,7 +497,7 @@ export default function StockRoom() {
           {viewMode === 'cards' && (
             <div
               className={`grid tracks-grid ${density === 'compact' ? 'stock-compact' : ''}`}
-              style={{ ['--col-min']: density === 'compact' ? '220px' : '260px' }}
+              style={{ '--col-min': density === 'compact' ? '220px' : '260px' }}
             >
               {visibleItems.map((it) => (
                 <div key={it.id} className="track-card">
@@ -492,9 +514,7 @@ export default function StockRoom() {
                       <StockProgress qty={it.qty || 0} minQty={it.minQty || 0} maxQty={it.maxQty || 0} />
                       <div className="row between" style={{ marginTop: density === 'compact' ? 4 : 6 }}>
                         <span className="small muted">On hand</span>
-                        <span className="small">
-                          {it.qty || 0} {it.unit}
-                        </span>
+                        <span className="small">{it.qty || 0} {it.unit}</span>
                       </div>
                     </div>
                   </div>
@@ -504,10 +524,13 @@ export default function StockRoom() {
             </div>
           )}
 
-          {/* List view (super compact) */}
+          {/* List view (mobile-responsive table via CSS) */}
           {viewMode === 'list' && (
             <div className="glass-subcard" style={{ overflowX: 'auto' }}>
-              <table className={`table dark ${density === 'compact' ? 'table-compact' : ''}`} style={{ width: '100%' }}>
+              <table
+                className={`table dark ${density === 'compact' ? 'table-compact' : ''} responsive`}
+                style={{ width: '100%' }}
+              >
                 <thead>
                   <tr>
                     <th style={{ textAlign: 'left' }}>Name</th>
@@ -527,13 +550,13 @@ export default function StockRoom() {
                     const low = qty <= min;
                     return (
                       <tr key={it.id}>
-                        <td className="ellipsis" title={it.name}>{it.name}</td>
-                        <td className="muted">{it.category || '—'}</td>
-                        <td className="muted">{it.unit || '—'}</td>
-                        <td>{qty}</td>
-                        <td className="muted">{min}</td>
-                        <td className="muted">{max || '—'}</td>
-                        <td>
+                        <td data-label="Name" className="ellipsis" title={it.name}>{it.name}</td>
+                        <td data-label="Category" className="muted">{it.category || '—'}</td>
+                        <td data-label="Unit" className="muted">{it.unit || '—'}</td>
+                        <td data-label="Qty">{qty}</td>
+                        <td data-label="Min" className="muted">{min}</td>
+                        <td data-label="Max" className="muted">{max || '—'}</td>
+                        <td data-label="Status">
                           <span className="chip" style={{ background: low ? '#ff6b6b' : '#2f2f2f' }}>
                             {low ? 'Low' : 'OK'}
                           </span>
@@ -542,7 +565,11 @@ export default function StockRoom() {
                     );
                   })}
                   {visibleItems.length === 0 && (
-                    <tr><td colSpan={7} className="muted" style={{ textAlign: 'center' }}>No items match your filters.</td></tr>
+                    <tr>
+                      <td colSpan={7} className="muted" style={{ textAlign: 'center' }}>
+                        No items match your filters.
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               </table>

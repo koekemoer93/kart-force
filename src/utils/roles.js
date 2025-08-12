@@ -10,12 +10,30 @@ export function getRole(input) {
   return undefined;
 }
 
+// Canonical role sets (lowercase)
+export const ADMIN_ROLES = ['admin', 'hrfinance',];
+export const WORKER_LIKE_ROLES = [
+  'worker',
+  'workshopmanager', // note: we normalize to lowercase, so "workshopManager" → "workshopmanager"
+  'mechanic',
+  'reception',
+  'marshall',
+  
+];
+
+export const ALL_ROLES = [...new Set([...ADMIN_ROLES, ...WORKER_LIKE_ROLES])];
+
 export function isAdmin(input) {
   const role = getRole(input);
-  return role === 'admin';
+  return ADMIN_ROLES.includes(role);
 }
 
 export function isWorkerLike(input) {
   const role = getRole(input);
-  return role === 'worker' || role === 'workshopmanager';
+  return WORKER_LIKE_ROLES.includes(role);
+}
+
+export function isKnownRole(input) {
+  const role = getRole(input);
+  return ALL_ROLES.includes(role);
 }

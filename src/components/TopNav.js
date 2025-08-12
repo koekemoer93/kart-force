@@ -8,6 +8,8 @@ import Avatar from './Avatar';
 import './TopNav.css';
 import { isAdmin, isWorkerLike } from '../utils/roles';
 
+
+
 export default function TopNav() {
   const navigate = useNavigate();
   const { user, profile, role: ctxRole } = useAuth();
@@ -34,6 +36,8 @@ export default function TopNav() {
     { label: 'Stock Room', path: '/stockroom' },
     { label: 'Task Creator', path: '/admin-task-manager' },
     { label: 'Seeder', path: '/admin-task-seeder'},
+    { label: 'Employee Seeder', path: '/admin-employee-seeder' },
+     { label: 'Register User', path: '/register' },
   ];
 
 
