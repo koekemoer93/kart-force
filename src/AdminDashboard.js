@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import TopNav from './components/TopNav';
 import { useStaffOnDuty } from './hooks/useStaffOnDuty';
-import TRACKS from './constants/tracks';
+import { useTracks } from './hooks/useTracks';
 import { db } from './firebase';
 import { fetchTrackHoursRaw } from './services/tracks';
 import { normalizeWeeklyHours, isOpenNow } from './utils/hours';
@@ -10,7 +10,6 @@ import { useAuth } from './AuthContext';
 import Avatar from './components/Avatar';
 import { useNavigate } from 'react-router-dom';
 import { collection, query, where, onSnapshot, Timestamp, getDoc, doc } from 'firebase/firestore';
-
 
 // ---- Helpers to compute "open now" from hours ----
 const DAY_KEYS = ['sun','mon','tue','wed','thu','fri','sat'];
@@ -101,7 +100,14 @@ export default function AdminDashboard() {
 
   const { byTrack, loading: loadingDuty } = useStaffOnDuty();
 
-  const trackIds = useMemo(() => Object.keys(TRACKS), []);
+  // 🔒 Normalize useTracks() to always be an array for safe .map()
+  const tracksRaw = useTracks();
+  const tracks = Array.isArray(tracksRaw)
+    ? tracksRaw
+    : (Array.isArray(tracksRaw?.tracks) ? tracksRaw.tracks : []);
+  const tracksMap = useMemo(() => Object.fromEntries(tracks.map(t => [t.id, t])), [tracks]);
+  const trackIds = useMemo(() => tracks.map(t => t.id), [tracks]);
+
   const [trackDocs, setTrackDocs] = useState({});
   const [loadingTracks, setLoadingTracks] = useState(true);
 
@@ -217,8 +223,7 @@ export default function AdminDashboard() {
         const results = {};
         for (const id of trackIds) {
           try {
-            const fetchId = TRACKS[id]?.id || id;
-            const snap = await getDoc(doc(db, 'tracks', fetchId));
+            const snap = await getDoc(doc(db, 'tracks', id));
 
             if (!snap.exists()) {
               results[id] = {
@@ -278,12 +283,12 @@ export default function AdminDashboard() {
     let isMounted = true;
     async function loadAllHours() {
       try {
+        if (!tracks.length) return;
         setHoursLoading(true);
         setHoursError(null);
 
-        const entries = Object.values(TRACKS);
         const results = await Promise.all(
-          entries.map(async (t) => {
+          tracks.map(async (t) => {
             const raw = await fetchTrackHoursRaw(t.id);
             const normalized = normalizeWeeklyHours(raw);
             return [t.id, normalized];
@@ -306,15 +311,15 @@ export default function AdminDashboard() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [tracks]); // <-- react when tracks load/change
 
   // Prefer normalized hours to compute open count, fallback to meta
   useEffect(() => {
     const now = new Date();
     let count = 0;
 
-    Object.keys(TRACKS).forEach((uiKey) => {
-      const firestoreKey = TRACKS[uiKey]?.id || uiKey;
+    trackIds.forEach((uiKey) => {
+      const firestoreKey = uiKey;
 
       const normalized = (trackHours && (trackHours[firestoreKey] || trackHours[uiKey])) || null;
       if (normalized) {
@@ -329,7 +334,7 @@ export default function AdminDashboard() {
     });
 
     setTracksOpenNow((prev) => (prev !== count ? count : prev));
-  }, [trackHours, trackDocs]);
+  }, [trackHours, trackDocs, trackIds]);
 
   // ---- Build per-track progress from tasksToday ----
   const perTrackProgress = useMemo(() => {
@@ -351,7 +356,7 @@ export default function AdminDashboard() {
 
   // FIX: match duty counts by id, firestore id, and case-insensitive match
   const getDutyCount = (uiKey) => {
-    const firestoreKey = TRACKS[uiKey]?.id || uiKey;
+    const firestoreKey = uiKey;
     const allKeysToCheck = [
       firestoreKey,
       uiKey,
@@ -460,9 +465,9 @@ export default function AdminDashboard() {
           ) : (
             <div className="grid tracks-grid">
               {trackIds.map((id) => {
-                const t = TRACKS[id];
+                const t = tracksMap?.[id];
                 const meta = trackDocs[id] || { isOpen: false, note: '', completionPercent: 0 };
-                const trackKey = TRACKS[id]?.id || id;
+                const trackKey = id;
                 const normalized = trackHours[trackKey];
 
                 // Determine open/closed label

@@ -1,7 +1,7 @@
+import { useTracks } from './hooks/useTracks';
 // src/pages/HoursManager.js
 import React, { useEffect, useState } from 'react';
 import TopNav from '../components/TopNav';
-import TRACKS from '../constants/tracks';
 import HoursEditor from '../components/HoursEditor';
 import { emptyWeek, getOpeningHours, saveOpeningHours, isValidHM } from '../services/tracks';
 import { useAuth } from '../AuthContext';
@@ -11,7 +11,8 @@ export default function HoursManager() {
   const { userData } = useAuth();
   const isAdmin = userData?.isAdmin(role);
 
-  const trackKeys = Object.keys(TRACKS);
+  const tracks = useTracks();
+  const trackKeys = tracks.map(t => t.id);
   const [hoursMap, setHoursMap] = useState({}); // { [trackKey]: hours }
   const [busy, setBusy] = useState({});         // { [trackKey]: bool }
   const [status, setStatus] = useState({});     // { [trackKey]: string }
@@ -22,7 +23,7 @@ export default function HoursManager() {
     (async () => {
       const next = {};
       for (const key of trackKeys) {
-        const docId = TRACKS[key]?.id || key;
+        const docId = key;
         try {
           const h = await getOpeningHours(docId);
           next[key] = h || emptyWeek();
@@ -56,7 +57,7 @@ export default function HoursManager() {
 
   async function saveOne(key) {
     if (!isAdmin) return alert('Admins only.');
-    const docId = TRACKS[key]?.id || key;
+    const docId = key;
     const hours = hoursMap[key];
     if (!validateWeek(hours)) return alert('Fix invalid times (HH:MM, open < close)');
 
@@ -86,7 +87,7 @@ export default function HoursManager() {
         </div>
 
         {trackKeys.map((key) => {
-          const t = TRACKS[key];
+          const t = (tracks.find(x => x.id === key));
           const hours = hoursMap[key];
           if (!hours) return null;
           return (

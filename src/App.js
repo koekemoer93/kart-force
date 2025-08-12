@@ -24,6 +24,8 @@ import AdminTaskSeeder from './pages/AdminTaskSeeder';
 import AdminTaskManager from './pages/AdminTaskManager';
 import AdminEmployeeSeeder from './pages/AdminEmployeeSeeder';
 import Register from './pages/Register';
+import AdminTracksManager from './pages/AdminTracksManager';
+import AdminUsersManager from './pages/AdminUsersManager';
 
 // ✅ Single, consistent guard using `require="admin" | "workerLike"`
 function ProtectedRoute({ children, require }) {
@@ -139,6 +141,8 @@ function App() {
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="/admin-tracks" element={<AdminTracksManager />} />
+          <Route path="/admin-users" element={<AdminUsersManager />} />
         </Routes>
       </Router>
     </AuthProvider>

@@ -19,8 +19,9 @@ import { useNavigate } from "react-router-dom";
 import TopNav from "./components/TopNav";
 import { clockIn, clockOut } from "./services/timeEntries";
 import { useGeofence } from "./hooks/useGeofence";
-import TRACKS from "./constants/tracks";
+
 import { haversineDistanceMeters } from "./utils/geo";
+import { useTrack } from "./hooks/useTrack";
 
 // --- Slim horizontal progress bar ---
 function ProgressBar({ percent = 0, trackColor = "#4a4a4a", fillColor = "#24ff98", height = 16 }) {
@@ -245,7 +246,7 @@ export default function WorkerDashboard() {
     if (!insideFenceOrBypass) {
       alert(
         `You must be inside the ${
-          TRACKS[assignedTrack]?.displayName || assignedTrack
+          track?.displayName || assignedTrack
         } geofence to clock ${isClockedIn ? "out" : "in"}.`
       );
       return;
@@ -264,7 +265,7 @@ export default function WorkerDashboard() {
     }
   }
 
-  const currentTrackName = assignedTrack ? TRACKS[assignedTrack]?.displayName || assignedTrack : "No track";
+  const currentTrackName = assignedTrack ? track?.displayName || assignedTrack : "No track";
 
   return (
     <>

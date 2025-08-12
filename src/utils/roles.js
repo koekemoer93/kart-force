@@ -18,6 +18,8 @@ export const WORKER_LIKE_ROLES = [
   'mechanic',
   'reception',
   'marshall',
+  'manager',
+  'assistantmanager',
   
 ];
 

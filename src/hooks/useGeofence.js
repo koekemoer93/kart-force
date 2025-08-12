@@ -1,7 +1,6 @@
 // src/hooks/useGeofence.js
-import { useEffect, useMemo, useState } from 'react';
-import TRACKS from '../constants/tracks';
-import { isWithinRadiusMeters, getPosition } from '../utils/geo';
+import { useEffect, useMemo, useState } from "react";
+import { useTrack } from "./useTrack";
 
 const DEFAULT_OPTIONS = {
   enableHighAccuracy: true,
@@ -9,89 +8,72 @@ const DEFAULT_OPTIONS = {
   timeout: 20_000,
 };
 
-// Read env once (CRA exposes REACT_APP_*)
-const BYPASS =
-  String(process.env.REACT_APP_BYPASS_GEOFENCE || '').toLowerCase() === 'true';
+const BYPASS = String(process.env.REACT_APP_BYPASS_GEOFENCE || "").toLowerCase() === "true";
 
-// Helper: parse "lat,lng" from env or localStorage
-function readMockPair() {
-  const fromEnv = process.env.REACT_APP_MOCK_GEO;
-  const fromLS =
-    typeof localStorage !== 'undefined' ? localStorage.getItem('mockGeo') : null;
+function toCoords(position) {
+  try {
+    return {
+      lat: position.coords.latitude,
+      lng: position.coords.longitude,
+      accuracy: position.coords.accuracy || 0,
+    };
+  } catch {
+    return null;
+  }
+}
 
-  const pick = (str) => {
-    if (!str) return null;
-    const [lat, lng] = String(str)
-      .split(',')
-      .map((v) => parseFloat(v.trim()));
-    if ([lat, lng].some((n) => Number.isNaN(n))) return null;
-    return { lat, lng, accuracy: 0 };
-  };
-
-  return pick(fromEnv) || pick(fromLS);
+function distanceMeters(a, b) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const R = 6371000;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const s1 = Math.sin(dLat / 2);
+  const s2 = Math.sin(dLng / 2);
+  const t = s1 * s1 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * s2 * s2;
+  return 2 * R * Math.atan2(Math.sqrt(t), Math.sqrt(1 - t));
 }
 
 export function useGeofence(assignedTrackId) {
   const [coords, setCoords] = useState(null); // { lat, lng, accuracy }
-  const [error, setError] = useState('');
-  const [permissionState, setPermissionState] = useState('prompt'); // 'granted' | 'denied' | 'prompt'
-  const track = assignedTrackId ? TRACKS[assignedTrackId] : null;
+  const [error, setError] = useState("");
+  const [permissionState, setPermissionState] = useState("prompt");
 
-  // Permissions watcher (no-op in bypass)
+  const track = useTrack(assignedTrackId);
+
   useEffect(() => {
+    let timer;
     let cancelled = false;
-
-    if (BYPASS) {
-      setPermissionState('granted');
-      return;
-    }
-
-    if (navigator.permissions?.query) {
-      navigator.permissions
-        .query({ name: 'geolocation' })
-        .then((status) => {
-          if (!cancelled) setPermissionState(status.state);
-          status.onchange = () => !cancelled && setPermissionState(status.state);
-        })
-        .catch(() => {});
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Position polling (uses our getPosition, which supports mocks & bypass)
-  useEffect(() => {
-    let cancelled = false;
-    let timer = null;
 
     async function tick() {
       try {
-        const pos = await getPosition(DEFAULT_OPTIONS); // resolves mock when configured
-        if (cancelled) return;
-        setError('');
-        const { latitude, longitude, accuracy } = pos.coords;
-        setCoords({ lat: latitude, lng: longitude, accuracy: accuracy ?? 0 });
-      } catch (err) {
-        if (cancelled) return;
-        setError(err?.message || 'Location error.');
+        await new Promise((resolve, reject) => {
+          if (!navigator.geolocation) return reject(new Error("Geolocation unavailable"));
+          navigator.geolocation.getCurrentPosition(
+            (pos) => resolve(pos),
+            (err) => reject(err),
+            DEFAULT_OPTIONS
+          );
+        }).then((pos) => {
+          if (!cancelled) {
+            const c = toCoords(pos);
+            if (c) setCoords(c);
+            setError("");
+          }
+        });
+      } catch (e) {
+        if (!cancelled) setError(e.message || "Location unavailable");
       }
     }
 
-    // If BYPASS: set a single mock and stop
-    if (BYPASS) {
-      const mock = readMockPair() || { lat: 0, lng: 0, accuracy: 0 };
-      setCoords(mock);
-      setError('');
-      setPermissionState('granted');
-      return () => {};
+    if (navigator?.permissions?.query) {
+      navigator.permissions.query({ name: "geolocation" }).then((res) => {
+        if (!cancelled) setPermissionState(res.state || "prompt");
+        res.onchange = () => !cancelled && setPermissionState(res.state || "prompt");
+      }).catch(() => {});
     }
 
-    // Initial fetch + poll every 5s (instead of watchPosition)
     tick();
     timer = setInterval(tick, 5000);
-
     return () => {
       cancelled = true;
       if (timer) clearInterval(timer);
@@ -99,24 +81,11 @@ export function useGeofence(assignedTrackId) {
   }, []);
 
   const isInsideFence = useMemo(() => {
-    // In dev bypass, always allow the page to render
     if (BYPASS) return true;
-
-    if (!track || !coords) return false;
-    return isWithinRadiusMeters(
-      coords.lat,
-      coords.lng,
-      track.lat,
-      track.lng,
-      track.radiusMeters
-    );
+    if (!coords || !track?.lat || !track?.lng) return false;
+    const radius = track?.radiusMeters || 300;
+    return distanceMeters(coords, { lat: track.lat, lng: track.lng }) <= radius;
   }, [coords, track]);
 
-  return {
-    coords,
-    error,
-    permissionState,
-    track,
-    isInsideFence,
-  };
+  return { coords, isInsideFence, permissionState, error, track };
 }

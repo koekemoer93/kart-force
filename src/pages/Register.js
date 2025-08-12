@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+// src/pages/Register.js
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { auth, db } from '../firebase';
 import {
@@ -6,16 +7,14 @@ import {
   updateProfile,
   sendEmailVerification
 } from 'firebase/auth';
-import {
-  doc,
-  setDoc,
-  serverTimestamp
-} from 'firebase/firestore';
-import TopNav from '../components/TopNav';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+ import TopNav from '../components/TopNav';
+ import { useTracks } from "../hooks/useTracks";
+ import { ROLE_OPTIONS, ROLE_LABELS } from '../constants/roles';
 
-// Keep aligned with your app
-const TRACK_OPTIONS = ["SyringaPark", "Epic Karting Pavilion", "Midlands"];
-const ROLE_OPTIONS = ["worker", "workshopManager", "mechanic", "reception", "marshall", "hrfinance", "admin"];
+// Fallback only if Firestore has no tracks (rare)
+const TRACK_OPTIONS_FALLBACK = ['SyringaPark', 'Epic Karting Pavilion', 'Midlands'];
+
 
 function toDisplayName(name, surname) {
   const n = (name || '').trim();
@@ -25,15 +24,36 @@ function toDisplayName(name, surname) {
 
 export default function Register() {
   const navigate = useNavigate();
+
+  // ✅ Our hook returns an ARRAY (not {tracks, loading})
+  const tracksList = useTracks();
+
+  // Build options from Firestore: value = doc id, label = displayName
+  const liveTrackOptions = useMemo(() => {
+    if (Array.isArray(tracksList) && tracksList.length) {
+      return tracksList.map(t => ({ value: t.id, label: t.displayName || t.id }));
+    }
+    // fallback labels/values
+    return TRACK_OPTIONS_FALLBACK.map(n => ({ value: n, label: n }));
+  }, [tracksList]);
+
   const [form, setForm] = useState({
     name: '',
     surname: '',
     email: '',
     password: '',
-    assignedTrack: TRACK_OPTIONS[0],
+    assignedTrack: '',   // set after options load
     role: 'worker',
     displayName: ''
   });
+
+  // Set a sensible default once options are available
+  useEffect(() => {
+    if (!form.assignedTrack && liveTrackOptions.length) {
+      setForm(s => ({ ...s, assignedTrack: liveTrackOptions[0].value }));
+    }
+  }, [liveTrackOptions, form.assignedTrack]);
+
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -53,6 +73,10 @@ export default function Register() {
       setError('Please fill in name, surname, email, and password.');
       return;
     }
+    if (!assignedTrack) {
+      setError('Please select a track.');
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -63,17 +87,16 @@ export default function Register() {
       // 2) Set Auth displayName (optional)
       await updateProfile(user, { displayName });
 
-      // 3) (Optional) Kick off verification email
+      // 3) (Optional) verification email
       try { await sendEmailVerification(user); } catch {}
 
-      // 4) Create /users/{uid} document with your fields
+      // 4) Create /users/{uid} doc — assignedTrack is the Firestore doc ID ✅
       const payload = {
         uid: user.uid,
         name: name.trim(),
         surname: surname.trim(),
-        assignedTrack,
-        role,                        // be careful: if regular users can self-select "admin", reviewers might
-                                     // abuse it. If needed, force role='worker' here and let admins upgrade later.
+        assignedTrack, // Firestore doc ID
+        role,
         email: email.trim().toLowerCase(),
         displayName,
         isClockedIn: false,
@@ -84,8 +107,7 @@ export default function Register() {
 
       await setDoc(doc(db, 'users', user.uid), payload, { merge: true });
 
-      // 5) Let your existing routing/guards handle the redirect
-      //    (AuthContext will see the new user doc and role).
+      // 5) Redirect
       navigate('/', { replace: true });
     } catch (err) {
       console.error('Register error:', err);
@@ -97,14 +119,13 @@ export default function Register() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg, #0f0f10)', color: 'var(--text, #f5f5f7)' }}>
-      {/* Optional: keep TopNav for consistent look; or remove if Login/Register should be clean */}
       <TopNav role={null} />
       <div style={{ maxWidth: 520, margin: '40px auto', padding: 16 }}>
         <h1 style={{ fontFamily: 'Merriweather, serif', fontWeight: 700, marginBottom: 6 }}>
           Create your account
         </h1>
         <p style={{ color: 'var(--muted, #a1a1aa)', marginBottom: 16 }}>
-          This will register you in Firebase Auth and create your profile in <code>/users/{'{uid}'}</code>.
+          This will register you in Firebase Auth and create your profile in <code>{'/users/{uid}'}</code>.
         </p>
 
         <form
@@ -119,37 +140,17 @@ export default function Register() {
           }}
         >
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <input
-              className="input-dark"
-              placeholder="Name"
-              value={form.name}
-              onChange={(e) => onChange('name', e.target.value)}
-            />
-            <input
-              className="input-dark"
-              placeholder="Surname"
-              value={form.surname}
-              onChange={(e) => onChange('surname', e.target.value)}
-            />
+            <input className="input-dark" placeholder="Name" value={form.name}
+                   onChange={(e) => onChange('name', e.target.value)} />
+            <input className="input-dark" placeholder="Surname" value={form.surname}
+                   onChange={(e) => onChange('surname', e.target.value)} />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
-            <input
-              className="input-dark"
-              type="email"
-              placeholder="email@example.com"
-              value={form.email}
-              onChange={(e) => onChange('email', e.target.value)}
-              autoComplete="email"
-            />
-            <input
-              className="input-dark"
-              type="password"
-              placeholder="Password"
-              value={form.password}
-              onChange={(e) => onChange('password', e.target.value)}
-              autoComplete="new-password"
-            />
+            <input className="input-dark" type="email" placeholder="email@example.com" value={form.email}
+                   onChange={(e) => onChange('email', e.target.value)} autoComplete="email" />
+            <input className="input-dark" type="password" placeholder="Password" value={form.password}
+                   onChange={(e) => onChange('password', e.target.value)} autoComplete="new-password" />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -157,41 +158,30 @@ export default function Register() {
               className="input-dark"
               value={form.assignedTrack}
               onChange={(e) => onChange('assignedTrack', e.target.value)}
+              title={!liveTrackOptions.length ? 'No tracks found' : undefined}
             >
-              {TRACK_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+              {liveTrackOptions.map(opt => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
 
-            <select
-              className="input-dark"
-              value={form.role}
-              onChange={(e) => onChange('role', e.target.value)}
-            >
-              {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
+            <select className="input-dark" value={form.role} onChange={(e) => onChange('role', e.target.value)}>
+              + {ROLE_OPTIONS.map(r => (
+   <option key={r} value={r}>     {ROLE_LABELS[r] ?? r}
+   </option>
+ ))}
             </select>
           </div>
 
-          <input
-            className="input-dark"
-            placeholder="Display name (optional)"
-            value={form.displayName}
-            onChange={(e) => onChange('displayName', e.target.value)}
-          />
+          <input className="input-dark" placeholder="Display name (optional)" value={form.displayName}
+                 onChange={(e) => onChange('displayName', e.target.value)} />
 
-          {error ? (
-            <div style={{ color: '#ff6b6b', fontSize: 14 }}>{error}</div>
-          ) : null}
+          {error ? <div style={{ color: '#ff6b6b', fontSize: 14 }}>{error}</div> : null}
 
-          <button
-            type="submit"
-            disabled={submitting}
-            style={{
-              background: '#24ff98',
-              color: '#000',
-              borderRadius: 12,
-              padding: '12px 14px',
-              fontWeight: 800
-            }}
-          >
+          <button type="submit" disabled={submitting}
+                  style={{ background: '#24ff98', color: '#000', borderRadius: 12, padding: '12px 14px', fontWeight: 800 }}>
             {submitting ? 'Creating account…' : 'Register'}
           </button>
 
@@ -201,7 +191,6 @@ export default function Register() {
         </form>
       </div>
 
-      {/* Local minimal input style if not globally present */}
       <style>{`
         .input-dark {
           background: var(--panel, #17181a);

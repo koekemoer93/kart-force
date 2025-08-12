@@ -3,19 +3,40 @@ import React, { useEffect, useMemo, useState } from 'react';
 import TopNav from '../components/TopNav';
 import { db } from '../firebase';
 import { useAuth } from '../AuthContext';
-import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { collection, onSnapshot, orderBy, query, doc, getDoc } from 'firebase/firestore';
 import { createSupplyRequest } from '../services/inventory';
-import TRACKS from '../constants/tracks';
 
 export default function SupplyRequest() {
   const { user, userData } = useAuth();
   const assignedTrack = userData?.assignedTrack || '';
-  const canRequestFor = assignedTrack || 'Unassigned';
 
+  const [trackName, setTrackName] = useState(assignedTrack ? assignedTrack : 'Unassigned');
   const [items, setItems] = useState([]);
   const [cart, setCart] = useState({}); // { itemId: { qty, name, unit } }
   const [submitting, setSubmitting] = useState(false);
 
+  // Load human-friendly track name from Firestore
+  useEffect(() => {
+    let alive = true;
+    async function fetchTrack() {
+      if (!assignedTrack) {
+        if (alive) setTrackName('Unassigned');
+        return;
+      }
+      try {
+        const ref = doc(db, 'tracks', assignedTrack);
+        const snap = await getDoc(ref);
+        const name = snap.exists() ? (snap.data().displayName || assignedTrack) : assignedTrack;
+        if (alive) setTrackName(name);
+      } catch {
+        if (alive) setTrackName(assignedTrack);
+      }
+    }
+    fetchTrack();
+    return () => { alive = false; };
+  }, [assignedTrack]);
+
+  // Load inventory catalog
   useEffect(() => {
     const invQ = query(collection(db, 'inventory'), orderBy('name'));
     const un = onSnapshot(invQ, (snap) => {
@@ -28,8 +49,7 @@ export default function SupplyRequest() {
 
   function setQty(item, qty) {
     const q = Math.max(0, Math.floor(Number(qty) || 0));
-    // Limit by available stock
-    const max = item.qty || 0;
+    const max = item.qty || 0; // available stock
     const safeQty = Math.min(q, max);
     setCart((prev) => ({
       ...prev,
@@ -37,11 +57,13 @@ export default function SupplyRequest() {
     }));
   }
 
-  const cartList = useMemo(() =>
-    Object.entries(cart)
-      .filter(([, v]) => v && v.qty > 0)
-      .map(([id, v]) => ({ itemId: id, ...v }))
-  , [cart]);
+  const cartList = useMemo(
+    () =>
+      Object.entries(cart)
+        .filter(([, v]) => v && v.qty > 0)
+        .map(([id, v]) => ({ itemId: id, ...v })),
+    [cart]
+  );
 
   async function submitRequest() {
     if (!assignedTrack) return alert('You need an assigned track to request stock.');
@@ -68,7 +90,7 @@ export default function SupplyRequest() {
       <TopNav />
       <div className="main-wrapper admin-dashboard-layout">
         <div className="glass-card" style={{ gridColumn: '1 / -1' }}>
-          <h3 style={{ marginTop: 0 }}>Weekly Supply Request — {TRACKS[assignedTrack]?.displayName || canRequestFor}</h3>
+          <h3 style={{ marginTop: 0 }}>Weekly Supply Request — {trackName}</h3>
           <p className="muted" style={{ marginTop: 0 }}>You can only request up to the available central stock.</p>
 
           <div className="grid tracks-grid">
