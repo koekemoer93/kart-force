@@ -1,7 +1,7 @@
 // src/pages/StockRoom.js
 import React, { useEffect, useMemo, useState } from 'react';
 import TopNav from '../components/TopNav';
-import StockProgress from '../components/StockProgress';
+import StockProgress from '../components/StockProgress'; // kept import (no removals)
 import { db } from '../firebase';
 import { useAuth } from '../AuthContext';
 import {
@@ -39,13 +39,17 @@ export default function StockRoom() {
   // 🔎 filters/sort
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [search, setSearch] = useState('');
-  const [sortBy, setSortBy] = useState('name'); // name|qty|minQty|maxQty|category
-  const [sortDir, setSortDir] = useState('asc'); // asc|desc
-  const [showLowStockOnly, setShowLowStockOnly] = useState(false);
+  const [sortBy, setSortBy] = useState('name'); // logic kept; controls hidden
+  const [sortDir, setSortDir] = useState('asc'); // logic kept; controls hidden
+  const [showLowStockOnly, setShowLowStockOnly] = useState(false); // logic kept; controls hidden
 
-  // view controls
+  // view controls (forced list)
   const [density, setDensity] = useState('cozy'); // cozy|compact
-  const [viewMode, setViewMode] = useState('cards'); // cards|list
+  const [viewMode, setViewMode] = useState('list'); // cards|list (forced)
+  useEffect(() => {
+    if (viewMode !== 'list') setViewMode('list');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Live inventory + requests
   useEffect(() => {
@@ -268,108 +272,50 @@ export default function StockRoom() {
         <div className="glass-card progress-summary-card" style={{ gridColumn: '1 / -1' }}>
           <h3 style={{ marginTop: 0 }}>Central Stock — Overview</h3>
 
-          {/* Toolbar: single-column on mobile via CSS */}
-          <div
-            className="stock-toolbar"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1.2fr 1.4fr 1fr auto auto auto',
-              gap: 10,
-              marginBottom: 12,
-            }}
-          >
-            <select
-              className="input-field"
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              title="Filter by category"
-            >
-              {categoryOptions.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt === 'all'
-                    ? `All categories (${items.length})`
-                    : `${opt} (${categoryCounts[opt] || 0})`}
-                </option>
-              ))}
-            </select>
-
-            <input
-              className="input-field"
-              placeholder="Search items (name, category, unit)…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              title="Search"
-            />
-
-            <select
-              className="input-field"
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              title="Sort by"
-            >
-              <option value="name">Sort: Name</option>
-              <option value="qty">Sort: Quantity</option>
-              <option value="minQty">Sort: Min Qty</option>
-              <option value="maxQty">Sort: Max Qty</option>
-              <option value="category">Sort: Category</option>
-            </select>
-
-            {/* sort direction on its own row on mobile (CSS handles width) */}
-            <button
-              type="button"
-              className={`btn-toggle ${sortDir === 'desc' ? 'is-active' : ''}`}
-              onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
-              title="Toggle sort direction"
-              aria-pressed={sortDir === 'desc'}
-            >
-              {sortDir === 'asc' ? 'Asc ↑' : 'Desc ↓'}
-            </button>
-
-            {/* Low stock checkbox always its own line on mobile */}
-            <label
-              className="low-stock"
-              title="Show items at or below minimum level"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
-            >
-              <input
-                type="checkbox"
-                checked={showLowStockOnly}
-                onChange={(e) => setShowLowStockOnly(e.target.checked)}
-              />
-              Low stock only
-            </label>
-
-            <select
-              className="input-field"
-              value={viewMode}
-              onChange={(e) => setViewMode(e.target.value)}
-              title="View mode"
-            >
-              <option value="cards">View: Cards</option>
-              <option value="list">View: List</option>
-            </select>
-
-            <select
-              className="input-field"
-              value={density}
-              onChange={(e) => setDensity(e.target.value)}
-              title="Density"
-            >
-              <option value="cozy">Density: Cozy</option>
-              <option value="compact">Density: Compact</option>
-            </select>
-          </div>
-
-          {/* --- Actions + Pending Requests (stacked on mobile via CSS) --- */}
+          {/* --- Full-width Pending + Stock Actions --- */}
           <div className="stock-actions-grid">
+            {/* Pending Requests */}
+            <div className="glass-subcard">
+              <h3>Track Orders</h3>
+              {pendingReqs.length === 0 ? (
+                <p className="muted">No pending requests.</p>
+              ) : (
+                pendingReqs.map((r) => (
+                  <div key={r.id} className="card-inner" style={{ padding: 8, marginBottom: 8 }}>
+                    <div className="row between" style={{ alignItems: 'flex-start' }}>
+                      <strong>{r.trackId}</strong>
+                      <span className="small muted">{r.status}</span>
+                    </div>
+                    <ul style={{ marginTop: 6 }}>
+                      {r.items.map((it, idx) => (
+                        <li key={idx} className="small">
+                          {it.name} — {it.qty} {it.unit}
+                        </li>
+                      ))}
+                    </ul>
+                    {admin && (
+                      <div className="pending-actions" style={{ marginTop: 10 }}>
+                        <button
+                          className="button-primary"
+                          style={{ width: '100%' }}
+                          onClick={() => handleFulfill(r.id)}
+                        >
+                          Fulfill & Deduct Stock
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
             {/* Stock Actions */}
             <div className="glass-subcard stock-actions-card">
-
-              <h3>Stock Actions</h3>
+              <h3>Stock Control</h3>
               <div className="actions-two-col">
                 {/* Add New Item */}
                 <div>
-                  <h4 style={{ margin: '6px 0 8px 0' }}>Add New Item</h4>
+                  <h4 style={{ margin: '6px 0 8px 0' }}>Add New Item to Stock</h4>
                   <form onSubmit={handleCreateItem}>
                     <input
                       className="input-field"
@@ -424,7 +370,7 @@ export default function StockRoom() {
 
                 {/* Receive Stock */}
                 <div>
-                  <h4 style={{ margin: '6px 0 8px 0' }}>Receive Stock</h4>
+                  <h4 style={{ margin: '6px 0 8px 0' }}>Check in new Stock</h4>
                   <form onSubmit={handleReceive}>
                     <select
                       className="input-field"
@@ -456,127 +402,123 @@ export default function StockRoom() {
                 </div>
               </div>
             </div>
-
-            {/* Pending Requests */}
-            <div className="glass-subcard">
-              <h3>Pending Requests</h3>
-              {pendingReqs.length === 0 ? (
-                <p className="muted">No pending requests.</p>
-              ) : (
-                pendingReqs.map((r) => (
-                  <div key={r.id} className="card-inner" style={{ padding: 8, marginBottom: 8 }}>
-                    <div className="row between" style={{ alignItems: 'flex-start' }}>
-                      <strong>{r.trackId}</strong>
-                      <span className="small muted">{r.status}</span>
-                    </div>
-                    <ul style={{ marginTop: 6 }}>
-                      {r.items.map((it, idx) => (
-                        <li key={idx} className="small">
-                          {it.name} — {it.qty} {it.unit}
-                        </li>
-                      ))}
-                    </ul>
-                    {admin && (
-                      <div className="pending-actions" style={{ marginTop: 10 }}>
-                        <button
-                          className="button-primary"
-                          style={{ width: '100%' }}
-                          onClick={() => handleFulfill(r.id)}
-                        >
-                          Fulfill & Deduct Stock
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
           </div>
 
-          {/* Cards view */}
-          {viewMode === 'cards' && (
-            <div
-              className={`grid tracks-grid ${density === 'compact' ? 'stock-compact' : ''}`}
-              style={{ '--col-min': density === 'compact' ? '220px' : '260px' }}
+          {/* ↓↓↓ Moved toolbar HERE — right above the list ↓↓↓ */}
+          <div className="stock-toolbar" style={{ marginTop: 12, marginBottom: 12 }}>
+            <select
+              className="input-field"
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              title="Filter by category"
             >
-              {visibleItems.map((it) => (
-                <div key={it.id} className="track-card">
-                  <div className="card track">
-                    <div className="row between wrap gap12">
-                      <h4 className="track-name ellipsis" title={it.name} style={{ margin: 0 }}>
-                        {it.name}
-                      </h4>
-                      <span className="small muted ellipsis" title={`${it.category || 'uncategorised'} · ${it.unit}`}>
-                        {it.category || 'uncategorised'} · {it.unit}
-                      </span>
-                    </div>
-                    <div style={{ marginTop: density === 'compact' ? 6 : 10 }}>
-                      <StockProgress qty={it.qty || 0} minQty={it.minQty || 0} maxQty={it.maxQty || 0} />
-                      <div className="row between" style={{ marginTop: density === 'compact' ? 4 : 6 }}>
-                        <span className="small muted">On hand</span>
-                        <span className="small">{it.qty || 0} {it.unit}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+              {categoryOptions.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt === 'all'
+                    ? `Choose category`
+                    : `${opt} (${categoryCounts[opt] || 0})`}
+                </option>
               ))}
-              {visibleItems.length === 0 && <p className="muted">No items match your filters.</p>}
-            </div>
-          )}
+            </select>
 
-          {/* List view (mobile-responsive table via CSS) */}
-          {viewMode === 'list' && (
-            <div className="glass-subcard" style={{ overflowX: 'auto' }}>
-              <table
-                className={`table dark ${density === 'compact' ? 'table-compact' : ''} responsive`}
-                style={{ width: '100%' }}
-              >
-                <thead>
-                  <tr>
-                    <th style={{ textAlign: 'left' }}>Name</th>
-                    <th>Category</th>
-                    <th>Unit</th>
-                    <th>Qty</th>
-                    <th>Min</th>
-                    <th>Max</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleItems.map((it) => {
-                    const qty = Number(it.qty || 0);
-                    const min = Number(it.minQty || 0);
-                    const max = Number(it.maxQty || 0);
-                    const low = qty <= min;
-                    return (
-                      <tr key={it.id}>
-                        <td data-label="Name" className="ellipsis" title={it.name}>{it.name}</td>
-                        <td data-label="Category" className="muted">{it.category || '—'}</td>
-                        <td data-label="Unit" className="muted">{it.unit || '—'}</td>
-                        <td data-label="Qty">{qty}</td>
-                        <td data-label="Min" className="muted">{min}</td>
-                        <td data-label="Max" className="muted">{max || '—'}</td>
-                        <td data-label="Status">
-                          <span className="chip" style={{ background: low ? '#ff6b6b' : '#2f2f2f' }}>
-                            {low ? 'Low' : 'OK'}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {visibleItems.length === 0 && (
-                    <tr>
-                      <td colSpan={7} className="muted" style={{ textAlign: 'center' }}>
-                        No items match your filters.
+            <input
+              className="input-field"
+              placeholder="Search items (name, category, unit)…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              title="Search"
+            />
+          </div>
+
+          {/* List view (forced) */}
+          <div className="glass-subcard" style={{ overflowX: 'auto' }}>
+            <table
+              className={`table dark ${density === 'compact' ? 'table-compact' : ''} responsive`}
+              style={{ width: '100%' }}
+            >
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left' }}>Name</th>
+                  <th>Category</th>
+                  <th>Unit</th>
+                  <th>Qty</th>
+                  <th>Min</th>
+                  <th>Max</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleItems.map((it) => {
+                  const qty = Number(it.qty || 0);
+                  const min = Number(it.minQty || 0);
+                  const max = Number(it.maxQty || 0);
+                  const low = qty <= min;
+                  return (
+                    <tr key={it.id}>
+                      <td data-label="Name" className="ellipsis" title={it.name}>{it.name}</td>
+                      <td data-label="Category" className="muted">{it.category || '—'}</td>
+                      <td data-label="Unit" className="muted">{it.unit || '—'}</td>
+                      <td data-label="Qty">{qty}</td>
+                      <td data-label="Min" className="muted">{min}</td>
+                      <td data-label="Max" className="muted">{max || '—'}</td>
+                      <td data-label="Status">
+                        <span className="chip" style={{ background: low ? '#ff6b6b' : '#2f2f2f' }}>
+                          {low ? 'Low' : 'OK'}
+                        </span>
                       </td>
                     </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  );
+                })}
+                {visibleItems.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="muted" style={{ textAlign: 'center' }}>
+                      No items match your filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
+
+      {/* Scoped tweaks: compact toolbar + full-width sections */}
+      <style>{`
+        /* Toolbar (now placed above the list) */
+        .stock-toolbar {
+          display: grid;
+          grid-template-columns: minmax(220px, 320px) 1fr;
+          gap: 8px;
+        }
+        .stock-toolbar .input-field {
+          height: 36px;
+          padding: 6px 10px;
+          font-size: 14px;
+          border-radius: 10px;
+        }
+
+        /* Full-width sections */
+        .stock-actions-grid {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 12px;
+          margin-top: 8px;
+        }
+
+        .actions-two-col {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 16px;
+        }
+        @media (max-width: 880px) {
+          .actions-two-col {
+            grid-template-columns: 1fr;
+          }
+          .stock-toolbar {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
     </>
   );
 }
