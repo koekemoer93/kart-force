@@ -30,19 +30,19 @@ export default function TopNav() {
   // ---- Button sets ----
   const adminButtons = [
     { label: 'Dashboard', path: '/admin-dashboard' },
-    { label: 'HR & Employees', path: '/admin-leave' },
+    //{ label: 'HR & Employees', path: '/admin-leave' },
     //{ label: 'H&S Review', path: '/safety-review' },
     { label: 'Stock Room', path: '/stockroom' },
-    { label: 'Task Creator', path: '/admin-task-manager' },
-    { label: 'Seeder', path: '/admin-task-seeder'},
-    { label: 'Employee Seeder', path: '/admin-employee-seeder' },
-    { label: 'Register User', path: '/register' },
+    //{ label: 'Task Creator', path: '/admin-task-manager' },
+    //{ label: 'Seeder', path: '/admin-task-seeder'},
+    //{ label: 'Employee Seeder', path: '/admin-employee-seeder' },
+    //{ label: 'Register User', path: '/register' },
   ];
 
   const hrFinanceButtons = [
     { label: 'Dashboard', path: '/admin-dashboard' },
     { label: 'Leave Requests', path: '/admin-leave' },
-    { label: 'H&S Review', path: '/safety-review' },
+   // { label: 'H&S Review', path: '/safety-review' },
   ];
 
   const workerButtons = [

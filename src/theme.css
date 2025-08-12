@@ -798,3 +798,11 @@ body:has(.kf-splash) {
   }
 }
 
+/* theme.css or LoginPage.css */
+.login-wrapper {
+  display: flex;
+  justify-content: center; /* center horizontally */
+  align-items: center;     /* center vertically */
+  min-height: 100vh;       /* take up full screen height */
+  background: var(--bg);   /* matches dark theme */
+}
