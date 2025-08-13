@@ -1,192 +1,283 @@
 // src/pages/AdminTracksManager.js
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import TopNav from "../components/TopNav";
 import { db } from "../firebase";
 import {
   collection,
   doc,
   getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
   updateDoc,
-  deleteDoc,
+  setDoc,
+  writeBatch,
 } from "firebase/firestore";
-import { useAuth } from "../AuthContext";
-import { isAdmin as isAdminFn } from "../utils/roles";
+import { isAdmin } from "../utils/roles";
 
-const defaultHours = {
-  mon: { open: "09:00", close: "18:00" },
-  tue: { open: "09:00", close: "18:00" },
-  wed: { open: "09:00", close: "18:00" },
-  thu: { open: "09:00", close: "18:00" },
-  fri: { open: "09:00", close: "18:00" },
-  sat: { open: "09:00", close: "18:00" },
-  sun: { open: "09:00", close: "18:00" },
-};
-
-function Row({ label, children }) {
-  return (
-    <label style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 12, alignItems: "center", marginBottom: 10 }}>
-      <span style={{ opacity: 0.9 }}>{label}</span>
-      {children}
-    </label>
-  );
+function isFiniteNum(v) {
+  return Number.isFinite(Number(v));
+}
+function clamp(n, min, max) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return NaN;
+  return Math.min(max, Math.max(min, x));
 }
 
 export default function AdminTracksManager() {
-  const { role } = useAuth();
-  const admin = isAdminFn(role);
   const [tracks, setTracks] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(null);
-  const [saving, setSaving] = useState(false);
+  const [savingId, setSavingId] = useState(null);
 
-  async function refresh() {
-    setLoading(true);
-    try {
-      const qTracks = query(collection(db, "tracks"), orderBy("displayName"));
-      const snap = await getDocs(qTracks);
-      setTracks(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    } finally {
-      setLoading(false);
-    }
-  }
+  // Bulk paste
+  const [bulkText, setBulkText] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
 
-  useEffect(() => { refresh(); }, []);
-
-  function startCreate() {
-    setEditing({ trackId: "", displayName: "", lat: "", lng: "", radiusMeters: 300, hours: defaultHours });
-  }
-  function startEdit(t) {
-    setEditing({ trackId: t.id, displayName: t.displayName || "", lat: t.lat ?? "", lng: t.lng ?? "", radiusMeters: t.radiusMeters ?? 300, hours: t.hours || defaultHours });
-  }
-
-  async function handleSave(e) {
-    e.preventDefault();
-    if (!admin) return alert("Admins only.");
-    const payload = {
-      displayName: String(editing.displayName || "").trim(),
-      lat: Number(editing.lat),
-      lng: Number(editing.lng),
-      radiusMeters: Number(editing.radiusMeters) || 300,
-      hours: editing.hours || {},
-      updatedAt: serverTimestamp(),
-    };
-    if (!payload.displayName) return alert("Display name is required.");
-    if (!Number.isFinite(payload.lat) || !Number.isFinite(payload.lng)) return alert("Valid numeric lat/lng required.");
-    setSaving(true);
-    try {
-      if (editing.trackId) {
-        await updateDoc(doc(db, "tracks", editing.trackId), payload);
-      } else {
-        const slug = (editing.trackId || payload.displayName).toLowerCase().replace(/[^a-z0-9]+/g, "").trim();
-        if (!slug) return alert("Please provide a valid trackId or displayName.");
-        await setDoc(doc(db, "tracks", slug), { ...payload, createdAt: serverTimestamp() });
+  // Load all tracks once
+  useEffect(() => {
+    (async () => {
+      try {
+        const snap = await getDocs(collection(db, "tracks"));
+        const arr = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setTracks(arr);
+      } catch (e) {
+        console.error("Load tracks error:", e);
+        alert("Failed to load tracks.");
+      } finally {
+        setLoading(false);
       }
-      await refresh();
-      setEditing(null);
-    } catch (err) {
-      console.error("Save track error:", err);
-      alert(err.message || "Failed to save track.");
-    } finally {
-      setSaving(false);
-    }
-  }
+    })();
+  }, []);
 
-  async function handleDelete(id) {
-    if (!admin) return alert("Admins only.");
-    if (!window.confirm("Delete this track? This cannot be undone.")) return;
+  async function saveRow(row) {
+    const { id, displayName } = row;
+    const lat = clamp(row.lat, -90, 90);
+    const lng = clamp(row.lng, -180, 180);
+    const radius = Math.max(50, Math.round(Number(row.radiusMeters || 0) || 300));
+
+    if (!id) return alert("Missing track id");
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return alert("Please enter valid coordinates.");
+    }
+
     try {
-      await deleteDoc(doc(db, "tracks", id));
-      setTracks((prev) => prev.filter((t) => t.id !== id));
-    } catch (err) {
-      console.error("Delete track error:", err);
-      alert("Failed to delete track.");
+      setSavingId(id);
+      const ref = doc(db, "tracks", id);
+      await updateDoc(ref, {
+        displayName: displayName || id,
+        lat,
+        lng,
+        radiusMeters: radius,
+      });
+      alert("Saved ✔");
+    } catch (e) {
+      // If doc might not exist, allow setDoc fallback
+      try {
+        const ref = doc(db, "tracks", id);
+        await setDoc(ref, {
+          displayName: displayName || id,
+          lat,
+          lng,
+          radiusMeters: radius,
+        }, { merge: true });
+        alert("Saved ✔");
+      } catch (err) {
+        console.error("Save row error:", err);
+        alert(err.message || "Failed to save.");
+      }
+    } finally {
+      setSavingId(null);
     }
   }
 
-  function setHours(day, field, value) {
-    setEditing((prev) => ({ ...prev, hours: { ...prev.hours, [day]: { ...prev.hours[day], [field]: value } } }));
+  // Bulk format: one per line -> trackId,lat,lng,radius
+  async function handleBulkApply() {
+    if (!bulkText.trim()) return;
+    const lines = bulkText
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    // Preview parse
+    const updates = [];
+    for (const line of lines) {
+      const parts = line.split(/[,;\s]+/).filter(Boolean);
+      if (parts.length < 3) {
+        return alert(`Line needs at least "trackId lat lng":\n${line}`);
+      }
+      const [id, latStr, lngStr, rStr] = parts;
+      const lat = clamp(latStr, -90, 90);
+      const lng = clamp(lngStr, -180, 180);
+      const radius = Math.max(50, Math.round(Number(rStr || 300) || 300));
+      if (!id || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return alert(`Invalid line:\n${line}`);
+      }
+      updates.push({ id, lat, lng, radiusMeters: radius });
+    }
+
+    // Write batch
+    try {
+      setBulkBusy(true);
+      const batch = writeBatch(db);
+      updates.forEach((u) => {
+        const ref = doc(db, "tracks", u.id);
+        batch.set(
+          ref,
+          {
+            displayName: u.id,   // can edit later per row
+            lat: u.lat,
+            lng: u.lng,
+            radiusMeters: u.radiusMeters,
+          },
+          { merge: true }
+        );
+      });
+      await batch.commit();
+      alert(`Applied ${updates.length} track updates ✔`);
+      setBulkText("");
+    } catch (e) {
+      console.error("Bulk set error:", e);
+      alert(e.message || "Bulk apply failed.");
+    } finally {
+      setBulkBusy(false);
+    }
   }
+
+  const sorted = useMemo(
+    () => tracks.slice().sort((a, b) => String(a.displayName || a.id).localeCompare(String(b.displayName || b.id))),
+    [tracks]
+  );
 
   return (
     <>
-      <TopNav />
-      <div className="main-wrapper" style={{ minHeight: "100vh", display: "flex", justifyContent: "center", padding: 16 }}>
-        <div className="glass-card" style={{ maxWidth: 920, width: "100%", padding: 20 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <h2 style={{ margin: 0 }}>Admin · Tracks Manager</h2>
-            <button onClick={startCreate} className="btn" style={{ padding: "10px 14px", borderRadius: 12, background: "#222", border: "1px solid #2a2d31", color: "#fff" }} disabled={!admin}>+ New Track</button>
+      <TopNav role="admin" />
+      <div className="main-wrapper" style={{ padding: 16, display: "flex", justifyContent: "center" }}>
+        <div className="glass-card" style={{ width: "100%", maxWidth: 980, padding: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+            <h2 style={{ margin: 0 }}>Admin — Tracks Manager</h2>
+            <div className="small muted">Edit lat / lng / radiusMeters used by geofence.</div>
           </div>
 
-          <div style={{ marginTop: 16 }}>
-            {loading ? <div>Loading…</div> : tracks.length === 0 ? <div style={{ opacity: 0.8 }}>No tracks yet.</div> : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {tracks.map((t) => (
-                  <div key={t.id} style={{ background: "#17181a", border: "1px solid #2a2d31", borderRadius: 14, padding: 14 }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "center" }}>
-                      <div>
-                        <div style={{ fontWeight: 600 }}>{t.displayName || t.id}</div>
-                        <div style={{ fontSize: 13, opacity: 0.8 }}>id: <code>{t.id}</code> · lat/lng: {t.lat},{t.lng} · r: {t.radiusMeters}m</div>
-                      </div>
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={() => startEdit(t)} style={{ padding: "8px 12px", borderRadius: 10, background: "#222", border: "1px solid #2a2d31", color: "#fff" }} disabled={!admin}>Edit</button>
-                        <button onClick={() => handleDelete(t.id)} style={{ padding: "8px 12px", borderRadius: 10, background: "#2a1212", border: "1px solid #3a1c1c", color: "#fff" }} disabled={!admin}>Delete</button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+          {/* Bulk paste */}
+          <div className="glass-card" style={{ marginTop: 12, padding: 12 }}>
+            <div className="row between wrap" style={{ gap: 12 }}>
+              <div>
+                <strong>Bulk paste</strong>
+                <div className="small muted">Format: <code>trackId, lat, lng, radius</code> — one per line.</div>
+              </div>
+              <button
+                className="button-primary"
+                disabled={bulkBusy || !bulkText.trim()}
+                onClick={handleBulkApply}
+              >
+                {bulkBusy ? "Applying…" : "Apply Updates"}
+              </button>
+            </div>
+            <textarea
+              className="input-field"
+              placeholder={`syringapark, -26.0995, 28.0582, 320\nindy-eastgate, -26.1430, 28.1164, 300`}
+              value={bulkText}
+              onChange={(e) => setBulkText(e.target.value)}
+              style={{ marginTop: 8, minHeight: 100 }}
+            />
+          </div>
+
+          {/* Table */}
+          <div className="glass-card" style={{ marginTop: 12, padding: 12 }}>
+            {loading ? (
+              <p>Loading tracks…</p>
+            ) : sorted.length === 0 ? (
+              <p className="muted">No tracks yet.</p>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table className="table dark responsive" style={{ width: "100%" }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: "left" }}>Track ID</th>
+                      <th>Display name</th>
+                      <th>Lat</th>
+                      <th>Lng</th>
+                      <th>Radius (m)</th>
+                      <th>Save</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sorted.map((t) => (
+                      <Row key={t.id} row={t} onSave={saveRow} saving={savingId === t.id} />
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
 
-          {editing && (
-            <form onSubmit={handleSave} style={{ marginTop: 18, background: "#17181a", border: "1px solid #2a2d31", borderRadius: 14, padding: 14 }}>
-              <h3 style={{ marginTop: 0 }}>{editing.trackId ? "Edit Track" : "New Track"}</h3>
-
-              {!editing.trackId && (
-                <Row label="Track ID (slug)">
-                  <input value={editing.trackId} onChange={(e) => setEditing({ ...editing, trackId: e.target.value })} placeholder="e.g. syringapark" style={{ width: "100%", padding: 10, borderRadius: 10, background: "#121315", border: "1px solid #2a2d31", color: "#fff" }} />
-                </Row>
-              )}
-
-              <Row label="Display name">
-                <input value={editing.displayName} onChange={(e) => setEditing({ ...editing, displayName: e.target.value })} placeholder="Syringa Park" required style={{ width: "100%", padding: 10, borderRadius: 10, background: "#121315", border: "1px solid #2a2d31", color: "#fff" }} />
-              </Row>
-
-              <Row label="Latitude">
-                <input value={editing.lat} onChange={(e) => setEditing({ ...editing, lat: e.target.value })} placeholder="-25.74" required style={{ width: "100%", padding: 10, borderRadius: 10, background: "#121315", border: "1px solid #2a2d31", color: "#fff" }} />
-              </Row>
-
-              <Row label="Longitude">
-                <input value={editing.lng} onChange={(e) => setEditing({ ...editing, lng: e.target.value })} placeholder="28.19" required style={{ width: "100%", padding: 10, borderRadius: 10, background: "#121315", border: "1px solid #2a2d31", color: "#fff" }} />
-              </Row>
-
-              <Row label="Radius (m)">
-                <input type="number" value={editing.radiusMeters} onChange={(e) => setEditing({ ...editing, radiusMeters: e.target.value })} min={50} style={{ width: "100%", padding: 10, borderRadius: 10, background: "#121315", border: "1px solid #2a2d31", color: "#fff" }} />
-              </Row>
-
-              <div style={{ marginTop: 10 }}>
-                <div style={{ fontWeight: 600, marginBottom: 8 }}>Hours (optional)</div>
-                {Object.entries(editing.hours || {}).map(([day, val]) => (
-                  <div key={day} style={{ display: "grid", gridTemplateColumns: "80px 1fr 1fr", gap: 10, marginBottom: 6 }}>
-                    <div style={{ opacity: 0.85, alignSelf: "center" }}>{day.toUpperCase()}</div>
-                    <input value={val.open} onChange={(e) => setHours(day, "open", e.target.value)} placeholder="09:00" style={{ padding: 10, borderRadius: 10, background: "#121315", border: "1px solid #2a2d31", color: "#fff" }} />
-                    <input value={val.close} onChange={(e) => setHours(day, "close", e.target.value)} placeholder="18:00" style={{ padding: 10, borderRadius: 10, background: "#121315", border: "1px solid #2a2d31", color: "#fff" }} />
-                  </div>
-                ))}
-              </div>
-
-              <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-                <button type="submit" disabled={saving || !admin} style={{ padding: "10px 14px", borderRadius: 12, background: "#1e2a1f", border: "1px solid #2d3d2e", color: "#d6ffd6" }}>{saving ? "Saving…" : "Save"}</button>
-                <button type="button" onClick={() => setEditing(null)} style={{ padding: "10px 14px", borderRadius: 12, background: "#222", border: "1px solid #2a2d31", color: "#fff" }}>Cancel</button>
-              </div>
-            </form>
-          )}
+          <div className="small muted" style={{ marginTop: 10 }}>
+            Tip: paste coords from Google Maps (Right-click → “What’s here?”).
+          </div>
         </div>
       </div>
     </>
+  );
+}
+
+function Row({ row, onSave, saving }) {
+  const [form, setForm] = useState({
+    id: row.id,
+    displayName: row.displayName || row.id,
+    lat: row.lat ?? "",
+    lng: row.lng ?? "",
+    radiusMeters: row.radiusMeters ?? 300,
+  });
+
+  return (
+    <tr>
+      <td data-label="Track ID">
+        <code>{row.id}</code>
+      </td>
+      <td data-label="Display name">
+        <input
+          className="input-field"
+          value={form.displayName}
+          onChange={(e) => setForm({ ...form, displayName: e.target.value })}
+          style={{ minWidth: 160 }}
+        />
+      </td>
+      <td data-label="Lat">
+        <input
+          className="input-field"
+          inputMode="decimal"
+          value={form.lat}
+          onChange={(e) => setForm({ ...form, lat: e.target.value })}
+          placeholder="-26.1234"
+          style={{ width: 140 }}
+        />
+      </td>
+      <td data-label="Lng">
+        <input
+          className="input-field"
+          inputMode="decimal"
+          value={form.lng}
+          onChange={(e) => setForm({ ...form, lng: e.target.value })}
+          placeholder="28.1234"
+          style={{ width: 140 }}
+        />
+      </td>
+      <td data-label="Radius">
+        <input
+          className="input-field"
+          type="number"
+          min={50}
+          value={form.radiusMeters}
+          onChange={(e) => setForm({ ...form, radiusMeters: e.target.value })}
+          style={{ width: 120 }}
+        />
+      </td>
+      <td>
+        <button
+          className="button-primary"
+          disabled={saving}
+          onClick={() => onSave(form)}
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </td>
+    </tr>
   );
 }
