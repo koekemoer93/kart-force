@@ -7,80 +7,114 @@ import {
   query,
   where,
   onSnapshot,
-  orderBy,
-  limit,
   doc,
+  updateDoc,
   arrayUnion,
   arrayRemove,
-  runTransaction,
   getDocs,
 } from "firebase/firestore";
-import { useNavigate } from "react-router-dom";
 import TopNav from "./components/TopNav";
-import { clockIn, clockOut } from "./services/timeEntries";
-import { useGeofence } from "./hooks/useGeofence";
-import { haversineDistanceMeters } from "./utils/geo";
 import { formatDateYMD } from "./utils/dates";
 import { useTracks } from "./hooks/useTracks";
 import { ROLE_OPTIONS } from "./constants/roles";
 
-// --- Slim horizontal progress bar ---
-function ProgressBar({ percent = 0, trackColor = "#4a4a4a", fillColor = "#24ff98", height = 16 }) {
-  const v = Math.max(0, Math.min(100, Math.round(percent)));
-  return (
-    <div
-      style={{
-        width: "100%",
-        background: trackColor,
-        borderRadius: 999,
-        height,
-        position: "relative",
-        boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.05)",
-      }}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={v}
-      role="progressbar"
-    >
-      <div
-        style={{
-          width: `${v}%`,
-          height: "100%",
-          background: fillColor,
-          borderRadius: 999,
-          transition: "width .35s ease",
-        }}
-      />
-    </div>
-  );
-}
+// ───────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ───────────────────────────────────────────────────────────────────────────────
 
-// Canonicalize role to one of ROLE_OPTIONS (case/spacing tolerant)
 function canonicalRole(input) {
   const norm = (s) => String(s || "").toLowerCase().replace(/[\s_\-]/g, "");
   const want = norm(input || "worker");
-  for (const r of ROLE_OPTIONS) {
-    if (norm(r) === want) return r; // exact canonical
-  }
-  // Common aliases
+  for (const r of ROLE_OPTIONS) if (norm(r) === want) return r;
   if (want === "workshopmanager" || want === "workshopmgr") return "workshopManager";
   if (want === "hr" || want === "hrfinance") return "hrfinance";
   return input || "worker";
 }
 
+// One admin-style tile for a task (checkbox only)
+function TaskTile({ task, uid, onToggle, busy }) {
+  const mine = (task.completedBy || []).includes(uid);
+  const others = Math.max(0, (task.completedBy || []).length - (mine ? 1 : 0));
+
+  return (
+    <div
+      className="glass-card"
+      style={{
+        padding: 12,
+        display: "grid",
+        gridTemplateColumns: "auto 1fr",
+        gap: 12,
+        alignItems: "center",
+        border: "1px solid rgba(255,255,255,0.08)",
+        minHeight: 76,
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={mine}
+        disabled={busy}
+        onChange={() => onToggle(task, mine)}
+        aria-label={mine ? "Uncheck task" : "Check task"}
+        style={{ width: 20, height: 20 }}
+      />
+
+      <div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ fontWeight: 800 }}>{task.title || "(untitled)"}</div>
+          <span
+            className="small"
+            style={{
+              padding: "2px 8px",
+              borderRadius: 999,
+              border: "1px solid rgba(255,255,255,0.1)",
+              background: "rgba(255,255,255,0.06)",
+              opacity: 0.9,
+            }}
+          >
+            {task.role}
+          </span>
+          <span
+            className="small"
+            style={{
+              padding: "2px 8px",
+              borderRadius: 999,
+              border: "1px solid rgba(255,255,255,0.08)",
+              background: "rgba(0,0,0,0.25)",
+              opacity: 0.8,
+            }}
+            title="Track ID"
+          >
+            {task.assignedTrack}
+          </span>
+        </div>
+
+        {task.description && (
+          <div className="small" style={{ opacity: 0.9, marginTop: 4 }}>
+            {task.description}
+          </div>
+        )}
+
+        <div className="small" style={{ opacity: 0.7, marginTop: 6, display: "flex", gap: 12 }}>
+          <span>Team done: {others}{mine ? " + you" : ""}</span>
+          <span>Date: {task.date || "—"}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Component
+// ───────────────────────────────────────────────────────────────────────────────
+
 export default function WorkerDashboard() {
-  const navigate = useNavigate();
   const { user, userData, displayName } = useAuth();
 
-  const assignedTrackRaw = userData?.assignedTrack ?? ""; // may be ID or displayName
-  const roleRaw = userData?.role ?? "worker";
-  const role = canonicalRole(roleRaw);
-  const isClockedIn = !!userData?.isClockedIn;
-
-  // Tracks for normalizing track ID
+  // Normalize track & role to match seeder/query
   const tracks = useTracks();
+  const assignedTrackRaw = userData?.assignedTrack ?? "";
+  const role = canonicalRole(userData?.role ?? "worker");
 
-  // Normalize assignedTrack to a real Firestore doc ID
   const assignedTrack = useMemo(() => {
     if (!assignedTrackRaw || !Array.isArray(tracks)) return "";
     const byId = tracks.find((t) => t.id === assignedTrackRaw);
@@ -92,25 +126,20 @@ export default function WorkerDashboard() {
     return byName?.id || "";
   }, [assignedTrackRaw, tracks]);
 
-  const currentTrack = useMemo(() => {
-    if (!assignedTrack || !Array.isArray(tracks)) return null;
-    return tracks.find((t) => t.id === assignedTrack) || null;
-  }, [assignedTrack, tracks]);
-
   const [tasks, setTasks] = useState([]);
-  const [roleHint, setRoleHint] = useState(null); // shows if tasks exist for other roles today
+  const [busyToggleId, setBusyToggleId] = useState(null);
+  const [roleHint, setRoleHint] = useState(null);
 
-  // --- Load today's tasks (exact match) ---
+  // Load today's tasks (drop orderBy to avoid composite-index requirement)
   useEffect(() => {
     if (!assignedTrack || !role || !user?.uid) return;
 
-    const todayStr = formatDateYMD(); // "YYYY-MM-DD"
+    const todayStr = formatDateYMD();
     const qTasks = query(
       collection(db, "tasks"),
       where("assignedTrack", "==", assignedTrack),
       where("role", "==", role),
-      where("date", "==", todayStr),
-      orderBy("createdAt", "desc")
+      where("date", "==", todayStr)
     );
 
     const unsub = onSnapshot(
@@ -124,10 +153,20 @@ export default function WorkerDashboard() {
             completedBy: Array.isArray(data.completedBy) ? data.completedBy : [],
           };
         });
+
+        // Sort client-side: incomplete first, then by title
+        const uid = user?.uid;
+        rows.sort((a, b) => {
+          const aMine = (a.completedBy || []).includes(uid);
+          const bMine = (b.completedBy || []).includes(uid);
+          if (aMine !== bMine) return aMine ? 1 : -1;
+          return String(a.title || "").localeCompare(String(b.title || ""));
+        });
+
         setTasks(rows);
 
-        // If no results, look for same track/date but ANY role → show a hint
         if (rows.length === 0) {
+          // Hint if tasks exist for same track/date but different role
           (async () => {
             try {
               const altQ = query(
@@ -142,292 +181,117 @@ export default function WorkerDashboard() {
                 );
                 if (rolesFound.length && !rolesFound.includes(role)) {
                   setRoleHint(
-                    `Tasks exist for: ${rolesFound.join(
-                      ", "
-                    )}. Your profile role is “${role}”.`
+                    `Tasks exist for: ${rolesFound.join(", ")}. Your profile role is “${role}”.`
                   );
-                } else {
-                  setRoleHint(null);
-                }
-              } else {
-                setRoleHint(null);
-              }
+                } else setRoleHint(null);
+              } else setRoleHint(null);
             } catch {
               setRoleHint(null);
             }
           })();
-        } else {
-          setRoleHint(null);
-        }
+        } else setRoleHint(null);
       },
       (err) => {
         console.error("Tasks snapshot error:", err);
-        setRoleHint(null);
       }
     );
 
     return () => unsub();
   }, [assignedTrack, role, user]);
 
-  // --- Completion percent ---
-  const completion = tasks.length
-    ? Math.round(
-        (tasks.filter((t) => (t.completedBy || []).includes(user?.uid)).length / tasks.length) *
-          100
-      )
-    : 0;
+  // Completion stats (your own ticks)
+  const total = tasks.length;
+  const done = tasks.filter((t) => (t.completedBy || []).includes(user?.uid)).length;
+  const displayNameSafe = displayName || userData?.name || "Worker";
 
-  // --- Toggle task completion (rules-safe: only updates completedBy) ---
-  const toggleTask = async (task) => {
+  // Toggle handler (rules-safe: only completedBy array union/remove)
+  const onToggle = async (task, isCompleted) => {
     if (!task?.docId || !user?.uid) return;
     try {
+      setBusyToggleId(task.docId);
       const ref = doc(db, "tasks", task.docId);
-      await runTransaction(db, async (tx) => {
-        const snap = await tx.get(ref);
-        if (!snap.exists()) throw new Error("Task no longer exists");
-        const data = snap.data() || {};
-        const current = Array.isArray(data.completedBy) ? data.completedBy : [];
-        const isCompleted = current.includes(user.uid);
-        tx.update(ref, {
-          completedBy: isCompleted ? arrayRemove(user.uid) : arrayUnion(user.uid),
-        });
+      await updateDoc(ref, {
+        completedBy: isCompleted ? arrayRemove(user.uid) : arrayUnion(user.uid),
       });
-    } catch (error) {
-      console.error("Error updating task:", { code: error.code, message: error.message, error });
-      alert("Failed to update task. Please try again.");
+    } catch (e) {
+      console.error("Error updating task:", e);
+      alert("Missing permissions to update this task. Ask an admin to check rules for completedBy.");
+    } finally {
+      setBusyToggleId(null);
     }
   };
-
-  // --- Geofence bypass (dev helper) ---
-  const allowBypass =
-    process.env.NODE_ENV !== "production" ||
-    String(process.env.REACT_APP_ALLOW_BYPASS).toLowerCase() === "true";
-  const bypassActive =
-    allowBypass &&
-    typeof window !== "undefined" &&
-    localStorage.getItem("bypassFence") === "true";
-  useEffect(() => {
-    if (!allowBypass) return;
-    const onKey = (e) => {
-      if (e.shiftKey && (e.key === "g" || e.key === "G")) {
-        const next = localStorage.getItem("bypassFence") === "true" ? "false" : "true";
-        localStorage.setItem("bypassFence", next);
-        window.location.reload();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [allowBypass]);
-
-  // --- Geofence ---
-  const { coords, isInsideFence, track } = useGeofence(assignedTrack);
-  const insideFenceOrBypass = bypassActive ? true : isInsideFence;
-
-  // --- Distance ---
-  const distanceToTrack =
-    coords && (track || currentTrack)
-      ? Math.round(
-          haversineDistanceMeters({
-            lat1: coords.lat,
-            lng1: coords.lng,
-            lat2: (track?.lat ?? currentTrack?.lat) || 0,
-            lng2: (track?.lng ?? currentTrack?.lng) || 0,
-          })
-        )
-      : null;
-
-  // --- Staff on duty count ---
-  const [staffCount, setStaffCount] = useState(0);
-  useEffect(() => {
-    if (!assignedTrack) return;
-    const qOnDuty = query(
-      collection(db, "timeEntries"),
-      where("trackId", "==", assignedTrack),
-      where("clockOutAt", "==", null)
-    );
-    const unsub = onSnapshot(qOnDuty, (snap) => setStaffCount(snap.size));
-    return () => unsub();
-  }, [assignedTrack]);
-
-  // --- My clock-in time ---
-  const [clockInTime, setClockInTime] = useState(null);
-  useEffect(() => {
-    if (!isClockedIn || !user?.uid) {
-      setClockInTime(null);
-      return;
-    }
-    const qMyOpen = query(
-      collection(db, "timeEntries"),
-      where("uid", "==", user.uid),
-      where("clockOutAt", "==", null),
-      orderBy("clockInAt", "desc"),
-      limit(1)
-    );
-    const unsub = onSnapshot(qMyOpen, (snap) => {
-      if (!snap.empty) {
-        const data = snap.docs[0].data();
-        setClockInTime(data.clockInAt?.toDate() || null);
-      } else {
-        setClockInTime(null);
-      }
-    });
-    return () => unsub();
-  }, [isClockedIn, user]);
-
-  // --- Shift progress ---
-  const shiftMinutes = Number.isFinite(userData?.shiftMinutes) ? userData.shiftMinutes : 480;
-  const shiftPercent = useMemo(() => {
-    if (!clockInTime) return 0;
-    const elapsedMin = Math.max(0, Math.floor((Date.now() - clockInTime.getTime()) / 60000));
-    const pct = (elapsedMin / Math.max(1, shiftMinutes)) * 100;
-    return Math.max(0, Math.min(100, Math.round(pct)));
-  }, [clockInTime, shiftMinutes]);
-
-  // --- Geofence proximity percent ---
-  const proximityPercent = useMemo(() => {
-    const effectiveTrack = track || currentTrack;
-    if (!effectiveTrack || distanceToTrack == null) return 0;
-    const radius = effectiveTrack?.radiusMeters || 300;
-    if (insideFenceOrBypass) return 100;
-    const pct = 100 - Math.min(100, Math.round((distanceToTrack / radius) * 100));
-    return Math.max(0, pct);
-  }, [track, currentTrack, distanceToTrack, insideFenceOrBypass]);
-
-  const [announcements, setAnnouncements] = useState([]);
-  useEffect(() => {
-    const qAnn = query(collection(db, "announcements"), orderBy("createdAt", "desc"), limit(3));
-    const unsub = onSnapshot(qAnn, (snap) =>
-      setAnnouncements(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-    );
-    return () => unsub();
-  }, []);
-
-  const [busyClock, setBusyClock] = useState(false);
-  async function handleClockButton() {
-    if (!user) return;
-    if (!assignedTrack) {
-      alert("No assigned track. Ask an admin to set your track.");
-      return;
-    }
-    const nameForMsg = track?.displayName || currentTrack?.displayName || assignedTrack;
-    if (!insideFenceOrBypass) {
-      alert(`You must be inside the ${nameForMsg} geofence to clock ${isClockedIn ? "out" : "in"}.`);
-      return;
-    }
-    try {
-      setBusyClock(true);
-      if (isClockedIn) {
-        await clockOut({ uid: user.uid });
-      } else {
-        await clockIn({ uid: user.uid, trackId: assignedTrack });
-      }
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setBusyClock(false);
-    }
-  }
-
-  const currentTrackName =
-    currentTrack?.displayName || track?.displayName || assignedTrack || "No track";
 
   return (
     <>
       <TopNav />
-      {bypassActive && <div className="bypass-banner">Geofence bypass enabled (dev mode)</div>}
+
       <div className="main-wrapper" style={{ minHeight: "100vh", display: "flex", justifyContent: "center", padding: 16 }}>
-        <div className="glass-card" style={{ maxWidth: 820, width: "100%", padding: 20 }}>
-          {/* Header */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-            <div>
-              <h2 style={{ marginTop: 0 }}>Welcome, {displayName || userData?.name || "Worker"}!</h2>
-              <p style={{ color: "#48ff99", margin: 0 }}>{currentTrackName}</p>
-              <p style={{ margin: 0 }}>Staff on duty: {staffCount}</p>
-              {isClockedIn && clockInTime && (
-                <p style={{ margin: 0, color: "#24ff98" }}>
-                  On shift since{" "}
-                  {clockInTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                </p>
-              )}
-            </div>
-
-            {/* Progress bars */}
-            <div style={{ width: 280, minWidth: 240, flex: "0 0 280px" }}>
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 12, marginBottom: 6, opacity: 0.85, display: "flex", justifyContent: "space-between" }}>
-                  <span>Tasks completion</span><span>{completion}%</span>
-                </div>
-                <ProgressBar percent={completion} fillColor="#3ed37e" />
+        <div style={{ width: "100%", maxWidth: 1100, display: "grid", gap: 16 }}>
+          {/* Welcome (admin-style) */}
+          <div className="glass-card" style={{ padding: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 999,
+                  background: "rgba(255,255,255,0.08)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontWeight: 800,
+                }}
+              >
+                {displayNameSafe.slice(0, 2).toUpperCase()}
               </div>
-
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 12, marginBottom: 6, opacity: 0.85, display: "flex", justifyContent: "space-between" }}>
-                  <span>Shift progress</span><span>{isClockedIn && clockInTime ? `${shiftPercent}%` : "—"}</span>
-                </div>
-                <ProgressBar percent={isClockedIn && clockInTime ? shiftPercent : 0} fillColor="#ffb266" />
-              </div>
-
               <div>
-                <div style={{ fontSize: 12, marginBottom: 6, opacity: 0.85, display: "flex", justifyContent: "space-between" }}>
-                  <span>Proximity to gate</span><span>{proximityPercent}%</span>
+                <div style={{ fontSize: 18, fontWeight: 800 }}>
+                  Welcome, {displayNameSafe}!
                 </div>
-                <ProgressBar percent={proximityPercent} fillColor="#f3a4ad" />
+                <div className="small muted">Today is {new Date().toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })}</div>
+              </div>
+              <div style={{ marginLeft: "auto" }} className="small muted">
+                {done}/{total} completed
               </div>
             </div>
           </div>
 
-          {/* Announcements */}
-          {announcements.length > 0 && (
-            <div style={{ marginTop: 20 }}>
-              <h3>Announcements</h3>
-              {announcements.map((a) => (
-                <div key={a.id} style={{ padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
-                  <strong>{a.title}</strong>
-                  <div style={{ fontSize: 14, opacity: 0.8 }}>{a.message}</div>
-                </div>
-              ))}
+          {/* Tasks — Status & Progress (admin cards layout) */}
+          <div className="glass-card" style={{ padding: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <h3 style={{ margin: 0 }}>Tasks — Status &amp; Progress</h3>
+              <div className="small muted">{formatDateYMD()}</div>
             </div>
-          )}
 
-          {/* Tasks list */}
-          <h3 style={{ marginTop: 20 }}>Today's Tasks</h3>
-          {roleHint && (
-            <div className="small" style={{ color: "#ffb266", marginBottom: 8 }}>
-              {roleHint}
-            </div>
-          )}
-          {(!assignedTrack || tasks.length === 0) ? (
-            <p style={{ color: "#ff6666" }}>
-              {assignedTrack
-                ? "No tasks assigned for today — please check with your manager."
-                : "No assigned track on your profile — ask an admin to set your track."}
-            </p>
-          ) : (
-            <ul>
-              {tasks.map((t) => (
-                <li key={t.docId} style={{ margin: "10px 0" }}>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={(t.completedBy || []).includes(user?.uid)}
-                      onChange={() => toggleTask(t)}
-                    />{" "}
-                    {t.title}
-                  </label>
-                </li>
-              ))}
-            </ul>
-          )}
+            {roleHint && (
+              <div className="small" style={{ color: "#ffb266", marginBottom: 8 }}>
+                {roleHint}
+              </div>
+            )}
 
-          {/* Clock button */}
-          <div style={{ marginTop: 24, display: "flex", gap: 12 }}>
-            <button
-              className="button-primary"
-              onClick={handleClockButton}
-              disabled={!!busyClock || !assignedTrack}
-            >
-              {isClockedIn ? "Clock Out" : "Clock In"}
-            </button>
+            {total === 0 ? (
+              <p className="small" style={{ color: "#ff6666", margin: 0 }}>
+                No tasks for today.
+              </p>
+            ) : (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+                  gap: 12,
+                }}
+              >
+                {tasks.map((t) => (
+                  <TaskTile
+                    key={t.docId}
+                    task={t}
+                    uid={user?.uid}
+                    busy={busyToggleId === t.docId}
+                    onToggle={onToggle}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
