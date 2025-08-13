@@ -10,6 +10,7 @@ import { useAuth } from './AuthContext';
 import Avatar from './components/Avatar';
 import { useNavigate } from 'react-router-dom';
 import { collection, query, where, onSnapshot, Timestamp, getDoc, doc } from 'firebase/firestore';
+import { seedTasksNow } from './services/seeder';
 
 // ---- Helpers to compute "open now" from hours ----
 const DAY_KEYS = ['sun','mon','tue','wed','thu','fri','sat'];
@@ -84,6 +85,8 @@ export default function AdminDashboard() {
   const [avgTaskCompletion, setAvgTaskCompletion] = useState(0);
   const [announcementsToday, setAnnouncementsToday] = useState(0);
   const [lateClockIns, setLateClockIns] = useState(0);
+  const [seeding, setSeeding] = useState(false);
+  const [seedResult, setSeedResult] = useState(null);
 
   // Live tasks for today (string date 'YYYY-MM-DD')
   const [tasksToday, setTasksToday] = useState([]);
@@ -136,6 +139,27 @@ export default function AdminDashboard() {
     });
     return () => unsub();
   }, []);
+
+  async function handleSeedToday() {
+    if (seeding) return;
+    const ok = window.confirm('Seed tasks for today from all templates?');
+    if (!ok) return;
+    try {
+      setSeeding(true);
+      setSeedResult(null);
+      const result = await seedTasksNow({ date: new Date() });
+      setSeedResult(result);
+      // Optional: toast
+      alert(`Seeding complete for ${result.date}.\nCreated: ${result.createdCount}\nSkipped: ${result.skippedCount}`);
+    } catch (e) {
+      console.error('Seed error:', e);
+      alert(e?.message || 'Seeding failed.');
+    } finally {
+      setSeeding(false);
+    }
+  }
+
+  
 
   // Clocked-in Employees
   useEffect(() => {
