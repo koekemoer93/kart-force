@@ -33,17 +33,17 @@ export default function TopNav() {
     //{ label: 'Tracks Manager', path: '/admin-tracks' },
     //{ label: 'HR & Employees', path: '/admin-leave' },
     //{ label: 'H&S Review', path: '/safety-review' },
-    { label: 'Users Manager', path: '/admin-users' },
+    //{ label: 'Users Manager', path: '/admin-users' },
     { label: 'Stock Room', path: '/stockroom' },
-    { label: 'Task Creator', path: '/admin-task-manager' },
+    //{ label: 'Task Creator', path: '/admin-task-manager' },
     //{ label: 'Seeder', path: '/admin-task-seeder'},
     //{ label: 'Employee Seeder', path: '/admin-employee-seeder' },
-    { label: 'Register User', path: '/register' },
+    //{ label: 'Register User', path: '/register' },
   ];
 
   const hrFinanceButtons = [
     { label: 'Dashboard', path: '/admin-dashboard' },
-    { label: 'Tracks Manager', path: '/admin-tracks' },
+    //{ label: 'Tracks Manager', path: '/admin-tracks' },
     { label: 'Leave Requests', path: '/admin-leave' },
    // { label: 'H&S Review', path: '/safety-review' },
   ];
