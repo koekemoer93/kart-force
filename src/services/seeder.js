@@ -9,6 +9,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { ROLE_OPTIONS } from "../constants/roles";
+import { canonicalRole } from "../utils/normalize";
 
 // Tokens must match AdminTaskManager
 export const ALL_TRACKS_TOKEN = "__all_tracks__";
@@ -72,8 +73,10 @@ export async function seedTasksNow({ date = new Date() } = {}) {
       continue;
     }
 
-    const roleList =
-      t.role === ALL_ROLES_TOKEN ? ROLE_OPTIONS : [t.role].filter(Boolean);
+ const roleList =
+   t.role === ALL_ROLES_TOKEN
+     ? ROLE_OPTIONS
+     : [canonicalRole(t.role)].filter(Boolean);
     const trackList =
       t.assignedTrack === ALL_TRACKS_TOKEN ? trackIds : [t.assignedTrack].filter(Boolean);
 
