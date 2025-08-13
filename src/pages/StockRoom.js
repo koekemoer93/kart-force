@@ -16,6 +16,21 @@ import {
 import { createItem, receiveStock } from '../services/inventory';
 import { isAdmin, isWorkerLike } from '../utils/roles';
 
+function fmtDateTime(v) {
+  try {
+    const d = v?.toDate ? v.toDate() : new Date(v);
+    return new Intl.DateTimeFormat(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(d);
+  } catch {
+    return String(v || '');
+  }
+}
+
 export default function StockRoom() {
   const { user, profile, role: ctxRole } = useAuth();
   const effectiveRole = ctxRole || profile?.role || '';
@@ -24,6 +39,7 @@ export default function StockRoom() {
 
   const [items, setItems] = useState([]);
   const [reqs, setReqs] = useState([]);
+  const [selectedReq, setSelectedReq] = useState(null); // ⬅️ details modal
 
   // forms
   const [newItem, setNewItem] = useState({
@@ -258,6 +274,7 @@ export default function StockRoom() {
       });
 
       alert('Stock deducted and request fulfilled ✔');
+      setSelectedReq(null); // close modal if open
     } catch (err) {
       console.error(err);
       alert(err.message || String(err));
@@ -281,24 +298,41 @@ export default function StockRoom() {
                 <p className="muted">No pending requests.</p>
               ) : (
                 pendingReqs.map((r) => (
-                  <div key={r.id} className="card-inner" style={{ padding: 8, marginBottom: 8 }}>
+                  <div
+                    key={r.id}
+                    className="card-inner"
+                    style={{ padding: 8, marginBottom: 8, cursor: 'pointer' }}
+                    onClick={() => setSelectedReq(r)}               // ⬅️ open details
+                  >
                     <div className="row between" style={{ alignItems: 'flex-start' }}>
                       <strong>{r.trackId}</strong>
-                      <span className="small muted">{r.status}</span>
+                      <span className="small muted">{r.status || 'pending'}</span>
                     </div>
+
+                    {/* Hint if there are notes */}
+                    {!!r.note && (
+                      <div className="small" style={{ marginTop: 4, opacity: 0.8 }}>
+                        <em>Note attached — click to view</em>
+                      </div>
+                    )}
+
                     <ul style={{ marginTop: 6 }}>
-                      {r.items.map((it, idx) => (
+                      {r.items?.map((it, idx) => (
                         <li key={idx} className="small">
                           {it.name} — {it.qty} {it.unit}
                         </li>
                       ))}
                     </ul>
+
                     {admin && (
                       <div className="pending-actions" style={{ marginTop: 10 }}>
                         <button
                           className="button-primary"
                           style={{ width: '100%' }}
-                          onClick={() => handleFulfill(r.id)}
+                          onClick={(e) => {
+                            e.stopPropagation(); // don't open modal
+                            handleFulfill(r.id);
+                          }}
                         >
                           Fulfill & Deduct Stock
                         </button>
@@ -442,24 +476,20 @@ export default function StockRoom() {
                   <th>Category</th>
                   <th>Unit</th>
                   <th>Qty</th>
-              
-      
-                  
+                  <th>Status</th>
                 </tr>
               </thead>
               <tbody>
                 {visibleItems.map((it) => {
                   const qty = Number(it.qty || 0);
                   const min = Number(it.minQty || 0);
-                  const max = Number(it.maxQty || 0);
                   const low = qty <= min;
                   return (
                     <tr key={it.id}>
                       <td data-label="Name" className="ellipsis" title={it.name}>{it.name}</td>
                       <td data-label="Category" className="muted">{it.category || '—'}</td>
-                     
+                      <td data-label="Unit">{it.unit || '—'}</td>
                       <td data-label="Qty">{qty}</td>
-                     
                       <td data-label="Status">
                         <span className="chip" style={{ background: low ? '#ff6b6b' : '#2f2f2f' }}>
                           {low ? 'Low' : 'OK'}
@@ -481,9 +511,80 @@ export default function StockRoom() {
         </div>
       </div>
 
-      {/* Scoped tweaks: compact toolbar + full-width sections */}
+      {/* Order details modal */}
+      {selectedReq && (
+        <div
+          className="modal-overlay"
+          onClick={() => setSelectedReq(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="modal-card glass-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 'min(720px, 96vw)' }}
+          >
+            <div className="row between" style={{ alignItems: 'center' }}>
+              <h3 style={{ margin: 0 }}>{selectedReq.trackId} — Order Details</h3>
+              <button className="button-secondary" onClick={() => setSelectedReq(null)}>Close</button>
+            </div>
+
+            <div className="small muted" style={{ marginTop: 6 }}>
+              Status: <strong>{selectedReq.status || 'pending'}</strong>
+              {selectedReq.createdAt && <> · Created: {fmtDateTime(selectedReq.createdAt)}</>}
+            </div>
+
+            {selectedReq.note && (
+              <div className="glass-card" style={{ marginTop: 12, padding: 12 }}>
+                <div className="small muted" style={{ marginBottom: 6 }}>Note</div>
+                <div style={{ whiteSpace: 'pre-wrap' }}>{selectedReq.note}</div>
+              </div>
+            )}
+
+            {selectedReq.photoURL && (
+              <div style={{ marginTop: 12 }}>
+                <div className="small muted" style={{ marginBottom: 6 }}>Attachment</div>
+                <img
+                  src={selectedReq.photoURL}
+                  alt="attachment"
+                  style={{
+                    maxWidth: '100%',
+                    borderRadius: 12,
+                    border: '1px solid rgba(255,255,255,0.1)'
+                  }}
+                />
+              </div>
+            )}
+
+            <div className="glass-card" style={{ marginTop: 12, padding: 12 }}>
+              <div className="small muted" style={{ marginBottom: 6 }}>Items</div>
+              <ul style={{ margin: 0 }}>
+                {selectedReq.items?.map((line, i) => (
+                  <li key={i} className="small">
+                    {line.name} — {line.qty} {line.unit}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {admin && selectedReq.status === 'pending' && (
+              <div style={{ marginTop: 14 }}>
+                <button
+                  className="button-primary"
+                  style={{ width: '100%' }}
+                  onClick={() => handleFulfill(selectedReq.id)}
+                >
+                  Fulfill & Deduct Stock
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Scoped tweaks: compact toolbar + full-width sections + modal */}
       <style>{`
-        /* Toolbar (now placed above the list) */
+        /* Toolbar (above the list) */
         .stock-toolbar {
           display: grid;
           grid-template-columns: minmax(220px, 320px) 1fr;
@@ -510,12 +611,29 @@ export default function StockRoom() {
           gap: 16px;
         }
         @media (max-width: 880px) {
-          .actions-two-col {
-            grid-template-columns: 1fr;
-          }
-          .stock-toolbar {
-            grid-template-columns: 1fr;
-          }
+          .actions-two-col { grid-template-columns: 1fr; }
+          .stock-toolbar { grid-template-columns: 1fr; }
+        }
+
+        /* Modal */
+        .modal-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,0.55);
+          backdrop-filter: blur(2px);
+          display: grid;
+          place-items: center;
+          z-index: 999;
+          padding: 14px;
+        }
+        .modal-card {
+          padding: 16px;
+          border-radius: 16px;
+          border: 1px solid rgba(255,255,255,0.08);
+          background: rgba(10,10,10,0.9);
+          max-height: 92vh;
+          overflow: auto;
+          box-shadow: 0 20px 60px rgba(0,0,0,0.5);
         }
       `}</style>
     </>

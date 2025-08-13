@@ -1,20 +1,132 @@
 // src/pages/Clock.js
-import React, { useEffect, useMemo, useState } from 'react';
-import TopNav from '../components/TopNav';
-import { useAuth } from '../AuthContext';
-import { useGeofence } from '../hooks/useGeofence';
-import { clockIn, clockOut } from '../services/timeEntries';
-import { db } from '../firebase';
-import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import TopNav from "../components/TopNav";
+import { useAuth } from "../AuthContext";
+import { useGeofence } from "../hooks/useGeofence";
+import { clockIn, clockOut } from "../services/timeEntries";
+import { db } from "../firebase";
+import { collection, query, where, orderBy, limit, getDocs } from "firebase/firestore";
+
+const HOLD_MS = 3000;            // must hold for 3 seconds
+const CLOCK_RADIUS_MIN = 300;    // must be within 300m to clock
 
 function formatHHmm(date) {
   try {
-    return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(date);
+    return new Intl.DateTimeFormat(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date);
   } catch {
-    const h = String(date.getHours()).padStart(2, '0');
-    const m = String(date.getMinutes()).padStart(2, '0');
+    const h = String(date.getHours()).padStart(2, "0");
+    const m = String(date.getMinutes()).padStart(2, "0");
     return `${h}:${m}`;
   }
+}
+
+/** Big, friendly "press & hold" button with a progress bar. */
+function HoldButton({
+  labelIdle,
+  labelHolding = "Keep holding…",
+  labelDone = "Confirmed",
+  onConfirm,
+  disabled = false,
+  danger = false,
+}) {
+  const [progress, setProgress] = useState(0); // 0..1
+  const [holding, setHolding] = useState(false);
+  const timerRef = useRef(null);
+  const startRef = useRef(0);
+
+  const startHold = () => {
+    if (disabled || holding) return;
+    setHolding(true);
+    setProgress(0);
+    startRef.current = Date.now();
+
+    const tick = () => {
+      const elapsed = Date.now() - startRef.current;
+      const p = Math.max(0, Math.min(1, elapsed / HOLD_MS));
+      setProgress(p);
+      if (p >= 1) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+        setHolding(false);
+        setProgress(1);
+        onConfirm?.(); // fire the action
+        // brief success fill
+        setTimeout(() => setProgress(0), 400);
+      }
+    };
+    timerRef.current = setInterval(tick, 30);
+  };
+
+  const cancelHold = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = null;
+    setHolding(false);
+    setProgress(0);
+  };
+
+  useEffect(() => () => cancelHold(), []);
+
+  const commonHandlers = {
+    onMouseDown: startHold,
+    onMouseUp: cancelHold,
+    onMouseLeave: cancelHold,
+    onTouchStart: (e) => {
+      e.preventDefault();
+      startHold();
+    },
+    onTouchEnd: cancelHold,
+    onTouchCancel: cancelHold,
+  };
+
+  return (
+    <div style={{ width: "100%", maxWidth: 420, margin: "0 auto" }}>
+      <button
+        {...commonHandlers}
+        disabled={disabled}
+        className="button-primary"
+        style={{
+          width: "100%",
+          borderRadius: 18,
+          padding: "22px 20px",
+          fontSize: 22,
+          fontWeight: 800,
+          letterSpacing: 0.3,
+          background: danger ? "linear-gradient(180deg,#ff6b6b,#c74b4b)" : undefined,
+          border: danger ? "1px solid rgba(255,255,255,0.15)" : undefined,
+          cursor: disabled ? "not-allowed" : "pointer",
+          position: "relative",
+          overflow: "hidden",
+        }}
+        aria-label={labelIdle}
+      >
+        <span style={{ position: "relative", zIndex: 2 }}>
+          {holding ? labelHolding : progress >= 1 ? labelDone : labelIdle}
+        </span>
+
+        {/* progress fill */}
+        <span
+          aria-hidden
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: danger
+              ? "rgba(255,255,255,0.15)"
+              : "linear-gradient(180deg, rgba(36,255,152,0.18), rgba(36,255,152,0.10))",
+            transform: `scaleX(${progress})`,
+            transformOrigin: "left center",
+            transition: holding ? "transform 30ms linear" : "transform 180ms ease",
+            pointerEvents: "none",
+          }}
+        />
+      </button>
+      <div className="small muted" style={{ textAlign: "center", marginTop: 6 }}>
+        Press & hold for 3 seconds
+      </div>
+    </div>
+  );
 }
 
 export default function Clock() {
@@ -23,32 +135,53 @@ export default function Clock() {
   const assignedTrack = userData?.assignedTrack ?? null;
   const isClockedInFlag = !!userData?.isClockedIn;
 
-  // Dev bypass
+  // Dev bypass toggle (Shift+G)
   const allowBypass =
-    process.env.NODE_ENV !== 'production' ||
-    String(process.env.REACT_APP_ALLOW_BYPASS).toLowerCase() === 'true';
-
+    process.env.NODE_ENV !== "production" ||
+    String(process.env.REACT_APP_ALLOW_BYPASS).toLowerCase() === "true";
   const bypassActive =
     allowBypass &&
-    typeof window !== 'undefined' &&
-    window.localStorage.getItem('bypassFence') === 'true';
+    typeof window !== "undefined" &&
+    window.localStorage.getItem("bypassFence") === "true";
 
   useEffect(() => {
     if (!allowBypass) return;
     const onKey = (e) => {
-      if (e.shiftKey && (e.key === 'g' || e.key === 'G')) {
-        const next = window.localStorage.getItem('bypassFence') === 'true' ? 'false' : 'true';
-        window.localStorage.setItem('bypassFence', next);
+      if (e.shiftKey && (e.key === "g" || e.key === "G")) {
+        const next =
+          window.localStorage.getItem("bypassFence") === "true" ? "false" : "true";
+        window.localStorage.setItem("bypassFence", next);
         window.location.reload();
       }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [allowBypass]);
 
-  // Geofence (pulls Firestore track displayName/coords)
-  const { coords, isInsideFence, permissionState, error: geoError, track } = useGeofence(assignedTrack);
-  const insideFenceOrBypass = bypassActive ? true : isInsideFence;
+  // Geofence (track coords + permission state)
+  const { coords, isInsideFence, permissionState, error: geoError, track } =
+    useGeofence(assignedTrack);
+
+  // Calculate actual distance (meters)
+  const approxDistance = useMemo(() => {
+    if (!coords || !track?.lat || !track?.lng) return null;
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const R = 6371000;
+    const dLat = toRad(track.lat - coords.lat);
+    const dLng = toRad(track.lng - coords.lng);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(coords.lat)) *
+        Math.cos(toRad(track.lat)) *
+        Math.sin(dLng / 2) ** 2;
+    const d = 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return Math.round(d);
+  }, [coords, track]);
+
+  // Enforce **within 300m** (unless bypass on)
+  const inside300m =
+    approxDistance == null ? false : approxDistance <= CLOCK_RADIUS_MIN;
+  const withinAllowedZone = bypassActive ? true : inside300m;
 
   const [openEntry, setOpenEntry] = useState(null);
   const [loadingEntry, setLoadingEntry] = useState(true);
@@ -61,10 +194,10 @@ export default function Clock() {
       if (!uid) return;
       setLoadingEntry(true);
       const qOpen = query(
-        collection(db, 'timeEntries'),
-        where('uid', '==', uid),
-        where('clockOutAt', '==', null),
-        orderBy('clockInAt', 'desc'),
+        collection(db, "timeEntries"),
+        where("uid", "==", uid),
+        where("clockOutAt", "==", null),
+        orderBy("clockInAt", "desc"),
         limit(1)
       );
       const snap = await getDocs(qOpen);
@@ -73,29 +206,37 @@ export default function Clock() {
       setLoadingEntry(false);
     }
     loadOpen();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [uid, isClockedInFlag]);
 
-  const currentTrackName = track?.displayName || assignedTrack || 'No track';
-  const approxDistance = useMemo(() => {
-    if (!coords || !track?.lat || !track?.lng) return null;
-    const toRad = (deg) => (deg * Math.PI) / 180;
-    const R = 6371000;
-    const dLat = toRad(track.lat - coords.lat);
-    const dLng = toRad(track.lng - coords.lng);
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(coords.lat)) * Math.cos(toRad(track.lat)) * Math.sin(dLng / 2) ** 2;
-    const d = 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return Math.round(d);
-  }, [coords, track]);
+  const currentTrackName = track?.displayName || assignedTrack || "No track";
+  const clockedInAtText = useMemo(() => {
+    if (!openEntry?.clockInAt) return "";
+    const started = openEntry.clockInAt?.toDate
+      ? openEntry.clockInAt.toDate()
+      : new Date(openEntry.clockInAt);
+    return formatHHmm(started);
+  }, [openEntry]);
 
-  async function handleClock() {
+  // Run the actual clock action after a successful hold
+  const onConfirmClock = async () => {
     if (!uid) return;
     if (!assignedTrack) {
-      alert('You do not have an assigned track. Ask an admin to assign you before clocking.');
+      alert("You do not have an assigned track. Ask an admin to assign you before clocking.");
       return;
     }
-    if (!insideFenceOrBypass) {
-      alert(`You must be inside the ${currentTrackName} geofence to clock ${openEntry ? 'out' : 'in'}.`);
+    if (!withinAllowedZone) {
+      alert(
+        `You must be within ${CLOCK_RADIUS_MIN}m of ${currentTrackName} to clock ${
+          openEntry ? "out" : "in"
+        }.`
+      );
+      return;
+    }
+    if (!bypassActive && permissionState !== "granted") {
+      alert("Location permission is required to clock in/out.");
       return;
     }
 
@@ -107,28 +248,22 @@ export default function Clock() {
         await clockIn({ uid, trackId: assignedTrack });
       }
     } catch (e) {
-      alert(e?.message || 'Clock action failed.');
+      alert(e?.message || "Clock action failed.");
     } finally {
       setBusy(false);
       try {
         const qOpen = query(
-          collection(db, 'timeEntries'),
-          where('uid', '==', uid),
-          where('clockOutAt', '==', null),
-          orderBy('clockInAt', 'desc'),
+          collection(db, "timeEntries"),
+          where("uid", "==", uid),
+          where("clockOutAt", "==", null),
+          orderBy("clockInAt", "desc"),
           limit(1)
         );
         const snap = await getDocs(qOpen);
         setOpenEntry(snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() });
       } catch {}
     }
-  }
-
-  const clockedInAtText = useMemo(() => {
-    if (!openEntry?.clockInAt) return '';
-    const started = openEntry.clockInAt?.toDate ? openEntry.clockInAt.toDate() : new Date(openEntry.clockInAt);
-    return formatHHmm(started);
-  }, [openEntry]);
+  };
 
   return (
     <>
@@ -140,37 +275,53 @@ export default function Clock() {
         </div>
       )}
 
-      <div className="main-wrapper" style={{ display: 'flex', justifyContent: 'center', padding: 16 }}>
-        <div className="glass-card" style={{ maxWidth: 560, width: '100%' }}>
+      <div
+        className="main-wrapper"
+        style={{ display: "flex", justifyContent: "center", padding: 16 }}
+      >
+        <div className="glass-card" style={{ maxWidth: 560, width: "100%", padding: 18 }}>
           <h2 style={{ marginTop: 0 }}>Clock</h2>
 
-          <div className="glass-card" style={{ padding: 16, marginBottom: 16, background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)' }}>
+          {/* Info */}
+          <div
+            className="glass-card"
+            style={{
+              padding: 16,
+              marginBottom: 16,
+              background: "rgba(0,0,0,0.25)",
+              border: "1px solid rgba(255,255,255,0.08)",
+            }}
+          >
             <div style={{ fontWeight: 700, marginBottom: 6 }}>
-              Please clock in once you arrive at work.
-            </div>
-            <div style={{ opacity: 0.9 }}>
-              You need to be inside the <strong>{currentTrackName}</strong> location geofence to clock in and out.
-            </div>
+  Clock in only at your assigned track and avoid unnecessary clock in/out — payroll is calculated from your clocked-in hours.
+</div>
+<div className="small" style={{ opacity: 0.9 }}>
+  Press & hold for 3 seconds. You must be within <strong>{CLOCK_RADIUS_MIN}m</strong> of <strong>{currentTrackName}</strong>.
+</div>
 
             {approxDistance !== null && (
-              <div style={{ opacity: 0.8, marginTop: 6 }}>Approx. distance to track: {approxDistance} m</div>
+              <div style={{ opacity: 0.8, marginTop: 6 }}>
+                Approx. distance to track: {approxDistance} m
+              </div>
             )}
 
-            {permissionState !== 'granted' && !bypassActive && (
-              <div style={{ color: '#ff7070', marginTop: 8 }}>
+            {!bypassActive && permissionState !== "granted" && (
+              <div style={{ color: "#ff7070", marginTop: 8 }}>
                 Location permission is required. Enable location access for your browser and reload.
-                {/* geoError may be empty, only show if present */}
-                {geoError ? <div style={{ opacity: 0.75, marginTop: 6 }}>Error: {geoError}</div> : null}
+                {geoError ? (
+                  <div style={{ opacity: 0.75, marginTop: 6 }}>Error: {geoError}</div>
+                ) : null}
               </div>
             )}
 
             {bypassActive && (
-              <div style={{ color: '#ffb766', marginTop: 8 }}>
+              <div style={{ color: "#ffb766", marginTop: 8 }}>
                 Dev bypass is ON — geofence and permission checks are ignored on this page.
               </div>
             )}
           </div>
 
+          {/* Status */}
           {loadingEntry ? (
             <p>Checking your clock status…</p>
           ) : openEntry ? (
@@ -181,28 +332,31 @@ export default function Clock() {
             <p style={{ marginTop: 0, opacity: 0.9 }}>You are not clocked in.</p>
           )}
 
-          <div style={{ textAlign: 'center', marginTop: 12 }}>
-            <button
-              className="button-primary"
-              onClick={handleClock}
-              disabled={busy || (!bypassActive && permissionState !== 'granted')}
-              style={{
-                padding: '14px 32px',
-                fontSize: 18,
-                borderRadius: 14,
-                fontWeight: 700,
-                width: '100%',
-                maxWidth: 300,
-                opacity: busy ? 0.7 : 1,
-                cursor: busy ? 'not-allowed' : 'pointer'
-              }}
-            >
-              {openEntry ? 'Clock Out' : 'Clock In'}
-            </button>
+          {/* Big hold button */}
+          <div style={{ marginTop: 14 }}>
+            {openEntry ? (
+              <HoldButton
+                labelIdle={`Clocked in at ${clockedInAtText} — Hold to Clock Out`}
+                labelHolding="Hold to clock out…"
+                labelDone="Clocked out"
+                onConfirm={onConfirmClock}
+                disabled={busy || (!bypassActive && permissionState !== "granted") || !withinAllowedZone}
+                danger
+              />
+            ) : (
+              <HoldButton
+                labelIdle="Clock In"
+                labelHolding="Hold to clock in…"
+                labelDone="Clocked in"
+                onConfirm={onConfirmClock}
+                disabled={busy || (!bypassActive && permissionState !== "granted") || !withinAllowedZone}
+              />
+            )}
 
-            {!bypassActive && permissionState !== 'granted' && (
-              <div style={{ marginTop: 10, color: '#ff9f5a' }}>
-                Enable location to use the clock.
+            {/* contextual helper */}
+            {!withinAllowedZone && (
+              <div className="small" style={{ color: "#ff9f5a", textAlign: "center", marginTop: 8 }}>
+                You are outside the {CLOCK_RADIUS_MIN}m zone.
               </div>
             )}
           </div>
