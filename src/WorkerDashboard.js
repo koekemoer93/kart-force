@@ -1,5 +1,4 @@
-// src/WorkerDashboard.js
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { db } from "./firebase";
 import { useAuth } from "./AuthContext";
 import {
@@ -18,9 +17,9 @@ import { formatDateYMD } from "./utils/dates";
 import { useTracks } from "./hooks/useTracks";
 import { ROLE_OPTIONS } from "./constants/roles";
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ───────────────────────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────────────────────
+   Helpers
+   ──────────────────────────────────────────────────────────────────────────── */
 
 function canonicalRole(input) {
   const norm = (s) => String(s || "").toLowerCase().replace(/[\s_\-]/g, "");
@@ -29,6 +28,76 @@ function canonicalRole(input) {
   if (want === "workshopmanager" || want === "workshopmgr") return "workshopManager";
   if (want === "hr" || want === "hrfinance") return "hrfinance";
   return input || "worker";
+}
+
+/** SVG circular progress (animated), shows % in the center */
+function ProgressCircle({ percent = 0, size = 56, stroke = 7 }) {
+  const [anim, setAnim] = useState(0);
+  const rafRef = useRef(null);
+
+  useEffect(() => {
+    let start;
+    const duration = 800;
+    const from = 0;
+    const to = Math.max(0, Math.min(100, percent));
+    const ease = (t) => 1 - Math.pow(1 - t, 3); // easeOutCubic
+
+    const step = (ts) => {
+      if (!start) start = ts;
+      const t = Math.min(1, (ts - start) / duration);
+      setAnim(from + (to - from) * ease(t));
+      if (t < 1) rafRef.current = requestAnimationFrame(step);
+    };
+
+    cancelAnimationFrame(rafRef.current ?? 0);
+    rafRef.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafRef.current ?? 0);
+  }, [percent]);
+
+  const r = (size - stroke) / 2;
+  const C = 2 * Math.PI * r;
+  const offset = C * (1 - anim / 100);
+
+  return (
+    <div style={{ position: "relative", width: size, height: size }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          stroke="rgba(255,255,255,0.15)"
+          strokeWidth={stroke}
+          fill="none"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          stroke="#24ff98"
+          strokeWidth={stroke}
+          fill="none"
+          strokeLinecap="round"
+          strokeDasharray={C}
+          strokeDashoffset={offset}
+          style={{ transition: "stroke-dashoffset 120ms linear" }}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+      </svg>
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "grid",
+          placeItems: "center",
+          fontSize: 12,
+          fontWeight: 800,
+          color: "#fff",
+        }}
+      >
+        {Math.round(anim)}%
+      </div>
+    </div>
+  );
 }
 
 // One admin-style tile for a task (checkbox only)
@@ -46,7 +115,7 @@ function TaskTile({ task, uid, onToggle, busy }) {
         gap: 12,
         alignItems: "center",
         border: "1px solid rgba(255,255,255,0.08)",
-        minHeight: 76,
+        minHeight: "auto", // ⬅️ kill global 420px
       }}
     >
       <input
@@ -57,7 +126,6 @@ function TaskTile({ task, uid, onToggle, busy }) {
         aria-label={mine ? "Uncheck task" : "Check task"}
         style={{ width: 20, height: 20 }}
       />
-
       <div>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
           <div style={{ fontWeight: 800 }}>{task.title || "(untitled)"}</div>
@@ -103,9 +171,9 @@ function TaskTile({ task, uid, onToggle, busy }) {
   );
 }
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Component
-// ───────────────────────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────────────────────
+   Component
+   ──────────────────────────────────────────────────────────────────────────── */
 
 export default function WorkerDashboard() {
   const { user, userData, displayName } = useAuth();
@@ -130,7 +198,7 @@ export default function WorkerDashboard() {
   const [busyToggleId, setBusyToggleId] = useState(null);
   const [roleHint, setRoleHint] = useState(null);
 
-  // Load today's tasks (drop orderBy to avoid composite-index requirement)
+  // Load today's tasks
   useEffect(() => {
     if (!assignedTrack || !role || !user?.uid) return;
 
@@ -154,7 +222,6 @@ export default function WorkerDashboard() {
           };
         });
 
-        // Sort client-side: incomplete first, then by title
         const uid = user?.uid;
         rows.sort((a, b) => {
           const aMine = (a.completedBy || []).includes(uid);
@@ -166,7 +233,6 @@ export default function WorkerDashboard() {
         setTasks(rows);
 
         if (rows.length === 0) {
-          // Hint if tasks exist for same track/date but different role
           (async () => {
             try {
               const altQ = query(
@@ -202,9 +268,10 @@ export default function WorkerDashboard() {
   // Completion stats (your own ticks)
   const total = tasks.length;
   const done = tasks.filter((t) => (t.completedBy || []).includes(user?.uid)).length;
+  const percent = total ? Math.round((done / total) * 100) : 0;
   const displayNameSafe = displayName || userData?.name || "Worker";
 
-  // Toggle handler (rules-safe: only completedBy array union/remove)
+  // Toggle handler (rules-safe)
   const onToggle = async (task, isCompleted) => {
     if (!task?.docId || !user?.uid) return;
     try {
@@ -225,40 +292,93 @@ export default function WorkerDashboard() {
     <>
       <TopNav />
 
-      <div className="main-wrapper" style={{ minHeight: "100vh", display: "flex", justifyContent: "center", padding: 16 }}>
-        <div style={{ width: "100%", maxWidth: 1100, display: "grid", gap: 16 }}>
-          {/* Welcome (admin-style) */}
-          <div className="glass-card" style={{ padding: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div
+        className="main-wrapper"
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          justifyContent: "flex-start", // ⬅️ anchor to top
+          padding: 16,
+        }}
+      >
+        <div style={{ width: "100%", maxWidth: 1100, display: "grid", gap: 12 }}>
+          {/* Welcome (compact) */}
+          <div
+            className="glass-card"
+            style={{
+              padding: 12,         // tighter
+              marginBottom: 0,
+              minHeight: "auto",   // ⬅️ kill global 420px
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                flexWrap: "wrap",
+              }}
+            >
               <div
                 style={{
-                  width: 36,
-                  height: 36,
+                  width: 32,
+                  height: 32,
                   borderRadius: 999,
                   background: "rgba(255,255,255,0.08)",
                   display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
                   fontWeight: 800,
+                  fontSize: 12,
                 }}
               >
                 {displayNameSafe.slice(0, 2).toUpperCase()}
               </div>
-              <div>
-                <div style={{ fontSize: 18, fontWeight: 800 }}>
+
+              <div style={{ minWidth: 200 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, lineHeight: 1.15 }}>
                   Welcome, {displayNameSafe}!
                 </div>
-                <div className="small muted">Today is {new Date().toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })}</div>
+                <div className="small muted" style={{ lineHeight: 1.1 }}>
+                  Today is{" "}
+                  {new Date().toLocaleDateString([], {
+                    weekday: "long",
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </div>
               </div>
-              <div style={{ marginLeft: "auto" }} className="small muted">
-                {done}/{total} completed
+
+              <div
+                className="welcome-progress"
+                style={{
+                  marginLeft: "auto",
+                  display: "grid",
+                  placeItems: "center",
+                  minWidth: 64,
+                }}
+              >
+                <ProgressCircle percent={percent} size={56} />
+                <div className="small muted" style={{ marginTop: 2 }}>
+                  {done}/{total} completed
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Tasks — Status & Progress (admin cards layout) */}
-          <div className="glass-card" style={{ padding: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          {/* Tasks — Status & Progress (compact) */}
+          <div
+            className="glass-card"
+            style={{ padding: 14, marginTop: 0, minHeight: "auto" }} // ⬅️ compact + no global min-height
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 8,
+              }}
+            >
               <h3 style={{ margin: 0 }}>Tasks — Status &amp; Progress</h3>
               <div className="small muted">{formatDateYMD()}</div>
             </div>

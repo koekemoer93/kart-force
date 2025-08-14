@@ -1,5 +1,4 @@
-// src/components/TopNav.js
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase';
@@ -28,11 +27,11 @@ export default function TopNav() {
 
   const adminButtons = [
     { label: 'Dashboard', path: '/admin-dashboard' },
-    { label: 'Tracks Manager', path: '/admin-tracks' },
-    { label: 'Users Manager', path: '/admin-users' },
+    //{ label: 'Tracks Manager', path: '/admin-tracks' },
+    //{ label: 'Users Manager', path: '/admin-users' },
     { label: 'Stock Room', path: '/stockroom' },
-    { label: 'Task Creator', path: '/admin-task-manager' },
-    { label: 'Register User', path: '/register' },
+    //{ label: 'Task Creator', path: '/admin-task-manager' },
+    //{ label: 'Register User', path: '/register' },
   ];
 
   const hrFinanceButtons = [
@@ -48,27 +47,46 @@ export default function TopNav() {
   ];
 
   let buttons;
-  if (admin) {
-    buttons = adminButtons;
-  } else if (effectiveRole === 'hrfinance') {
-    buttons = hrFinanceButtons;
-  } else if (workerLike) {
-    buttons = workerButtons;
-  } else {
-    buttons = workerButtons;
-  }
+  if (admin) buttons = adminButtons;
+  else if (effectiveRole === 'hrfinance') buttons = hrFinanceButtons;
+  else if (workerLike) buttons = workerButtons;
+  else buttons = workerButtons;
 
+  // --- Mobile drawer state + a11y refs ---
   const [mobileOpen, setMobileOpen] = useState(false);
+  const drawerRef = useRef(null);
+  const hamburgerRef = useRef(null);
 
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [location.pathname]);
+  // Close drawer on route change
+  useEffect(() => { setMobileOpen(false); }, [location.pathname]);
 
+  // ESC to close
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && setMobileOpen(false);
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // Manage focus + inert when opening/closing
+  useEffect(() => {
+    const el = drawerRef.current;
+    if (!el) return;
+
+    if (mobileOpen) {
+      el.removeAttribute('inert');
+      el.setAttribute('aria-hidden', 'false');
+      // focus first focusable item
+      const first = el.querySelector('button, [href], [tabindex]:not([tabindex="-1"])');
+      if (first) first.focus();
+    } else {
+      el.setAttribute('aria-hidden', 'true');
+      el.setAttribute('inert', '');
+      // if focus was inside, return it to hamburger
+      if (el.contains(document.activeElement)) {
+        hamburgerRef.current?.focus();
+      }
+    }
+  }, [mobileOpen]);
 
   return (
     <>
@@ -78,7 +96,7 @@ export default function TopNav() {
           <div className="logo-text"></div>
         </div>
 
-        {/* Center: nav buttons */}
+        {/* Center: nav buttons (hidden on mobile via CSS) */}
         <div className="center">
           <div className="nav-scroll">
             {buttons.map((b) => (
@@ -104,9 +122,11 @@ export default function TopNav() {
             size={36}
           />
           <button
+            ref={hamburgerRef}
             className="hamburger"
             aria-label="Open menu"
             aria-expanded={mobileOpen}
+            aria-controls="mobile-drawer"
             onClick={() => setMobileOpen(true)}
           >
             <span />
@@ -116,15 +136,32 @@ export default function TopNav() {
         </div>
       </div>
 
-      {/* Mobile overlay + drawer */}
+      {/* Backdrop (non-focusable) */}
       <div
         className={`mobile-backdrop ${mobileOpen ? 'show' : ''}`}
         onClick={() => setMobileOpen(false)}
+        aria-hidden="true"
       />
-      <aside className={`mobile-drawer ${mobileOpen ? 'open' : ''}`} aria-hidden={!mobileOpen}>
+
+      {/* Drawer */}
+      <aside
+        id="mobile-drawer"
+        ref={drawerRef}
+        className={`mobile-drawer ${mobileOpen ? 'open' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-hidden={!mobileOpen}
+        tabIndex={-1}
+      >
         <div className="drawer-header">
           <div className="drawer-brand">Kart Force</div>
-          <button className="drawer-close" onClick={() => setMobileOpen(false)} aria-label="Close menu">×</button>
+          <button
+            className="drawer-close"
+            onClick={() => setMobileOpen(false)}
+            aria-label="Close menu"
+          >
+            ×
+          </button>
         </div>
 
         <div className="drawer-user">
