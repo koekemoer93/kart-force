@@ -1,5 +1,5 @@
 // src/App.js
-import React from 'react';
+import React, { useState } from 'react';
 import SafetyChecklistPage from './pages/SafetyChecklistPage';
 import SafetyReviewPage from './pages/SafetyReviewPage';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
@@ -27,6 +27,9 @@ import Register from './pages/Register';
 import AdminTracksManager from './pages/AdminTracksManager';
 import AdminUsersManager from './pages/AdminUsersManager';
 
+// 🆕 Splash screen import
+import SplashScreen from './components/SplashScreen';
+
 // ✅ Single, consistent guard using `require="admin" | "workerLike"`
 function ProtectedRoute({ children, require }) {
   const { user, role, profile, loading } = useAuth();
@@ -42,108 +45,110 @@ function ProtectedRoute({ children, require }) {
 }
 
 function App() {
+  const [showSplash, setShowSplash] = useState(true);
+
   return (
     <AuthProvider>
       <Router>
-        <Routes>
-          {/* Public */}
-          <Route path="/" element={<LoginPage />} />
-          <Route path="/seed-tasks" element={<TaskSeeder />} />
-          <Route path="/task-creator" element={<AdminTaskCreator />} />
-          <Route path="/admin/seed-hours" element={<SeedAllHours />} />
-          <Route path="/seed-hours" element={<SeedHours />} />
-          <Route path="/task-history" element={<TaskHistoryPage />} />
-          <Route path="/request-leave" element={<LeaveRequestPage />} />
-          <Route path="/stockroom" element={<StockRoom />} />
-          <Route path="/request-supplies" element={<SupplyRequest />} />
+        {showSplash ? (
+          <SplashScreen onFinish={() => setShowSplash(false)} />
+        ) : (
+          <Routes>
+            {/* Public */}
+            <Route path="/" element={<LoginPage />} />
+            <Route path="/seed-tasks" element={<TaskSeeder />} />
+            <Route path="/task-creator" element={<AdminTaskCreator />} />
+            <Route path="/admin/seed-hours" element={<SeedAllHours />} />
+            <Route path="/seed-hours" element={<SeedHours />} />
+            <Route path="/task-history" element={<TaskHistoryPage />} />
+            <Route path="/request-leave" element={<LeaveRequestPage />} />
+            <Route path="/stockroom" element={<StockRoom />} />
+            <Route path="/request-supplies" element={<SupplyRequest />} />
 
+            {/* Admin-only */}
+            <Route
+              path="/admin-dashboard"
+              element={
+                <ProtectedRoute require="admin">
+                  <AdminDashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin-employee-seeder"
+              element={
+                <ProtectedRoute require="admin">
+                  <AdminEmployeeSeeder />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin-task-manager"
+              element={
+                <ProtectedRoute require="admin">
+                  <AdminTaskManager />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/track-details/:trackName"
+              element={
+                <ProtectedRoute require="admin">
+                  <TrackDetailsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin-leave"
+              element={
+                <ProtectedRoute require="admin">
+                  <AdminLeavePanel />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/register"
+              element={
+                <ProtectedRoute require="admin">
+                  <Register />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin-task-seeder"
+              element={
+                <ProtectedRoute require="admin">
+                  <AdminTaskSeeder />
+                </ProtectedRoute>
+              }
+            />
 
-          {/* Admin-only */}
-          <Route
-            path="/admin-dashboard"
-            element={
-              <ProtectedRoute require="admin">
-                <AdminDashboard />
-              </ProtectedRoute>
-            }
-          />
+            {/* Worker-like */}
+            <Route
+              path="/worker-dashboard"
+              element={
+                <ProtectedRoute require="workerLike">
+                  <GeofenceGate>
+                    <WorkerDashboard />
+                  </GeofenceGate>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/clock"
+              element={
+                <ProtectedRoute require="workerLike">
+                  <Clock />
+                </ProtectedRoute>
+              }
+            />
 
-          <Route
-  path="/admin-employee-seeder"
-  element={
-    <ProtectedRoute isAdmin>
-      <AdminEmployeeSeeder />
-    </ProtectedRoute>
-  }
-/>
-          <Route
-  path="/admin-task-manager"
-  element={
-    <ProtectedRoute require="admin">
-      <AdminTaskManager />
-    </ProtectedRoute>
-  }
-/>
-          <Route
-            path="/track-details/:trackName"
-            element={
-              <ProtectedRoute require="admin">
-                <TrackDetailsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin-leave"
-            element={
-              <ProtectedRoute require="admin">
-                <AdminLeavePanel />
-              </ProtectedRoute>
-            }
-          />
-      
-              <Route
-  path="/register"
-  element={
-    <ProtectedRoute isAdmin>
-      <Register />
-    </ProtectedRoute>
-  }
-/>
-          <Route
-  path="/admin-task-seeder"
-  element={
-    <ProtectedRoute require="admin">
-      <AdminTaskSeeder />
-    </ProtectedRoute>
-  }
-/>
-
-
-          {/* Worker-like */}
-          <Route
-            path="/worker-dashboard"
-            element={
-              <ProtectedRoute require="workerLike">
-                <GeofenceGate>
-                  <WorkerDashboard />
-                </GeofenceGate>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/clock"
-            element={
-              <ProtectedRoute require="workerLike">
-                <Clock />
-              </ProtectedRoute>
-            }
-          />
-
-          {/* Fallback */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-          <Route path="/admin-tracks" element={<AdminTracksManager />} />
-          <Route path="/admin-users" element={<AdminUsersManager />} />
-        </Routes>
+            {/* Fallback */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="/admin-tracks" element={<AdminTracksManager />} />
+            <Route path="/admin-users" element={<AdminUsersManager />} />
+          </Routes>
+        )}
       </Router>
     </AuthProvider>
   );

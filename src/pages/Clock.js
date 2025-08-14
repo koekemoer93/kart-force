@@ -7,8 +7,8 @@ import { clockIn, clockOut } from "../services/timeEntries";
 import { db } from "../firebase";
 import { collection, query, where, orderBy, limit, getDocs } from "firebase/firestore";
 
-const HOLD_MS = 3000;            // must hold for 3 seconds
-const CLOCK_RADIUS_MIN = 300;    // must be within 300m to clock
+const HOLD_MS = 3000;            
+const CLOCK_RADIUS_MIN = 300;    
 
 function formatHHmm(date) {
   try {
@@ -23,7 +23,7 @@ function formatHHmm(date) {
   }
 }
 
-/** Big, friendly "press & hold" button with a progress bar (mobile‑safe). */
+/** Mobile-safe Hold Button */
 function HoldButton({
   labelIdle,
   labelHolding = "Keep holding…",
@@ -66,7 +66,7 @@ function HoldButton({
   const onPointerDown = (e) => {
     if (disabled || holding) return;
     if (e.isPrimary === false) return;
-    e.preventDefault(); // prevent ghost clicks on mobile
+    e.preventDefault(); // Prevent ghost clicks on mobile
     setHolding(true);
     setProgress(0);
     startTsRef.current = performance.now();
@@ -101,7 +101,7 @@ function HoldButton({
           cursor: disabled ? "not-allowed" : "pointer",
           position: "relative",
           overflow: "hidden",
-          touchAction: "none",               // ✅ important for mobile
+          touchAction: "none",              
           WebkitUserSelect: "none",
           userSelect: "none",
           WebkitTapHighlightColor: "transparent",
@@ -133,15 +133,12 @@ function HoldButton({
   );
 }
 
-
-
 export default function Clock() {
   const { user, userData } = useAuth();
   const uid = user?.uid;
   const assignedTrack = userData?.assignedTrack ?? null;
   const isClockedInFlag = !!userData?.isClockedIn;
 
-  // Dev bypass toggle (Shift+G)
   const allowBypass =
     process.env.NODE_ENV !== "production" ||
     String(process.env.REACT_APP_ALLOW_BYPASS).toLowerCase() === "true";
@@ -164,15 +161,12 @@ export default function Clock() {
     return () => window.removeEventListener("keydown", onKey);
   }, [allowBypass]);
 
-  // Geofence (track coords + permission state)
   const { coords, isInsideFence, permissionState, error: geoError, track } =
     useGeofence(assignedTrack);
 
-    // If we have live coords, treat permission as OK (iOS Safari often reports 'prompt').
-const hasLiveCoords = !!(coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng));
-const permissionOk = bypassActive || permissionState === "granted" || hasLiveCoords;
+  const hasLiveCoords = !!(coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng));
+  const permissionOk = bypassActive || permissionState === "granted" || hasLiveCoords;
 
-  // Calculate actual distance (meters)
   const approxDistance = useMemo(() => {
     if (!coords || !track?.lat || !track?.lng) return null;
     const toRad = (deg) => (deg * Math.PI) / 180;
@@ -188,7 +182,6 @@ const permissionOk = bypassActive || permissionState === "granted" || hasLiveCoo
     return Math.round(d);
   }, [coords, track]);
 
-  // Enforce **within 300m** (unless bypass on)
   const inside300m =
     approxDistance == null ? false : approxDistance <= CLOCK_RADIUS_MIN;
   const withinAllowedZone = bypassActive ? true : inside300m;
@@ -197,7 +190,6 @@ const permissionOk = bypassActive || permissionState === "granted" || hasLiveCoo
   const [loadingEntry, setLoadingEntry] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  // Load the latest open time entry for the user
   useEffect(() => {
     let cancelled = false;
     async function loadOpen() {
@@ -230,7 +222,6 @@ const permissionOk = bypassActive || permissionState === "granted" || hasLiveCoo
     return formatHHmm(started);
   }, [openEntry]);
 
-  // Run the actual clock action after a successful hold
   const onConfirmClock = async () => {
     if (!uid) return;
     if (!assignedTrack) {
@@ -246,7 +237,6 @@ const permissionOk = bypassActive || permissionState === "granted" || hasLiveCoo
       return;
     }
     if (!permissionOk) {
-
       alert("Location permission is required to clock in/out.");
       return;
     }
@@ -286,29 +276,17 @@ const permissionOk = bypassActive || permissionState === "granted" || hasLiveCoo
         </div>
       )}
 
-      <div
-        className="main-wrapper"
-        style={{ display: "flex", justifyContent: "center", padding: 16 }}
-      >
+      <div className="main-wrapper" style={{ display: "flex", justifyContent: "center", padding: 16 }}>
         <div className="glass-card" style={{ maxWidth: 560, width: "100%", padding: 18 }}>
           <h2 style={{ marginTop: 0 }}>Clock</h2>
 
-          {/* Info */}
-          <div
-            className="glass-card"
-            style={{
-              padding: 16,
-              marginBottom: 16,
-              background: "rgba(0,0,0,0.25)",
-              border: "1px solid rgba(255,255,255,0.08)",
-            }}
-          >
+          <div className="glass-card" style={{ padding: 16, marginBottom: 16, background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.08)" }}>
             <div style={{ fontWeight: 700, marginBottom: 6 }}>
-  Clock in only at your assigned track and avoid unnecessary clock in/out — payroll is calculated from your clocked-in hours.
-</div>
-<div className="small" style={{ opacity: 0.9 }}>
-  Press & hold for 3 seconds. You must be within <strong>{CLOCK_RADIUS_MIN}m</strong> of <strong>{currentTrackName}</strong>.
-</div>
+              Clock in only at your assigned track and avoid unnecessary clock in/out — payroll is calculated from your clocked-in hours.
+            </div>
+            <div className="small" style={{ opacity: 0.9 }}>
+              Press & hold for 3 seconds. You must be within <strong>{CLOCK_RADIUS_MIN}m</strong> of <strong>{currentTrackName}</strong>.
+            </div>
 
             {approxDistance !== null && (
               <div style={{ opacity: 0.8, marginTop: 6 }}>
@@ -317,7 +295,6 @@ const permissionOk = bypassActive || permissionState === "granted" || hasLiveCoo
             )}
 
             {!permissionOk && (
-
               <div style={{ color: "#ff7070", marginTop: 8 }}>
                 Location permission is required. Enable location access for your browser and reload.
                 {geoError ? (
@@ -333,7 +310,6 @@ const permissionOk = bypassActive || permissionState === "granted" || hasLiveCoo
             )}
           </div>
 
-          {/* Status */}
           {loadingEntry ? (
             <p>Checking your clock status…</p>
           ) : openEntry ? (
@@ -344,7 +320,6 @@ const permissionOk = bypassActive || permissionState === "granted" || hasLiveCoo
             <p style={{ marginTop: 0, opacity: 0.9 }}>You are not clocked in.</p>
           )}
 
-          {/* Big hold button */}
           <div style={{ marginTop: 14 }}>
             {openEntry ? (
               <HoldButton
@@ -353,7 +328,6 @@ const permissionOk = bypassActive || permissionState === "granted" || hasLiveCoo
                 labelDone="Clocked out"
                 onConfirm={onConfirmClock}
                 disabled={busy || !permissionOk || !withinAllowedZone}
-
                 danger
               />
             ) : (
@@ -362,11 +336,10 @@ const permissionOk = bypassActive || permissionState === "granted" || hasLiveCoo
                 labelHolding="Hold to clock in…"
                 labelDone="Clocked in"
                 onConfirm={onConfirmClock}
-                disabled={busy || (!bypassActive && permissionState !== "granted") || !withinAllowedZone}
+                disabled={busy || !permissionOk || !withinAllowedZone}
               />
             )}
 
-            {/* contextual helper */}
             {!withinAllowedZone && (
               <div className="small" style={{ color: "#ff9f5a", textAlign: "center", marginTop: 8 }}>
                 You are outside the {CLOCK_RADIUS_MIN}m zone.
