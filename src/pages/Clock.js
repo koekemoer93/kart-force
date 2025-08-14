@@ -23,7 +23,7 @@ function formatHHmm(date) {
   }
 }
 
-/** Big, friendly "press & hold" button with a progress bar. */
+/** Big, friendly "press & hold" button with a progress bar (mobile‑safe). */
 function HoldButton({
   labelIdle,
   labelHolding = "Keep holding…",
@@ -34,57 +34,60 @@ function HoldButton({
 }) {
   const [progress, setProgress] = useState(0); // 0..1
   const [holding, setHolding] = useState(false);
-  const timerRef = useRef(null);
-  const startRef = useRef(0);
+  const startTsRef = useRef(0);
+  const rafRef = useRef(null);
 
-  const startHold = () => {
-    if (disabled || holding) return;
-    setHolding(true);
-    setProgress(0);
-    startRef.current = Date.now();
-
-    const tick = () => {
-      const elapsed = Date.now() - startRef.current;
-      const p = Math.max(0, Math.min(1, elapsed / HOLD_MS));
-      setProgress(p);
-      if (p >= 1) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-        setHolding(false);
-        setProgress(1);
-        onConfirm?.(); // fire the action
-        // brief success fill
-        setTimeout(() => setProgress(0), 400);
-      }
-    };
-    timerRef.current = setInterval(tick, 30);
-  };
-
-  const cancelHold = () => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = null;
+  const stop = () => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
     setHolding(false);
     setProgress(0);
+    startTsRef.current = 0;
+    window.removeEventListener("pointerup", onPointerUpCancel, true);
+    window.removeEventListener("pointercancel", onPointerUpCancel, true);
   };
 
-  useEffect(() => () => cancelHold(), []);
-
-  const commonHandlers = {
-    onMouseDown: startHold,
-    onMouseUp: cancelHold,
-    onMouseLeave: cancelHold,
-    onTouchStart: (e) => {
-      e.preventDefault();
-      startHold();
-    },
-    onTouchEnd: cancelHold,
-    onTouchCancel: cancelHold,
+  const tick = () => {
+    const now = performance.now();
+    const elapsed = now - startTsRef.current;
+    const p = Math.max(0, Math.min(1, elapsed / HOLD_MS));
+    setProgress(p);
+    if (p >= 1) {
+      stop();
+      setProgress(1);
+      onConfirm?.();
+      // brief success fill, then reset
+      setTimeout(() => setProgress(0), 400);
+      return;
+    }
+    rafRef.current = requestAnimationFrame(tick);
   };
+
+  const onPointerDown = (e) => {
+    if (disabled || holding) return;
+    // Only react to primary pointer (avoid multi-touch edge cases)
+    if (e.isPrimary === false) return;
+    e.preventDefault();
+    setHolding(true);
+    setProgress(0);
+    startTsRef.current = performance.now();
+    window.addEventListener("pointerup", onPointerUpCancel, true);
+    window.addEventListener("pointercancel", onPointerUpCancel, true);
+    rafRef.current = requestAnimationFrame(tick);
+  };
+
+  const onPointerUpCancel = () => {
+    // If released before completion, cancel
+    if (progress < 1) stop();
+  };
+
+  useEffect(() => () => stop(), []);
 
   return (
     <div style={{ width: "100%", maxWidth: 420, margin: "0 auto" }}>
       <button
-        {...commonHandlers}
+        onPointerDown={onPointerDown}
+        onContextMenu={(e) => e.preventDefault()}
         disabled={disabled}
         className="button-primary"
         style={{
@@ -99,6 +102,11 @@ function HoldButton({
           cursor: disabled ? "not-allowed" : "pointer",
           position: "relative",
           overflow: "hidden",
+          // mobile fixes
+          touchAction: "none",
+          WebkitUserSelect: "none",
+          userSelect: "none",
+          WebkitTapHighlightColor: "transparent",
         }}
         aria-label={labelIdle}
       >
@@ -128,6 +136,7 @@ function HoldButton({
     </div>
   );
 }
+
 
 export default function Clock() {
   const { user, userData } = useAuth();
@@ -161,6 +170,10 @@ export default function Clock() {
   // Geofence (track coords + permission state)
   const { coords, isInsideFence, permissionState, error: geoError, track } =
     useGeofence(assignedTrack);
+
+    // If we have live coords, treat permission as OK (iOS Safari often reports 'prompt').
+const hasLiveCoords = !!(coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng));
+const permissionOk = bypassActive || permissionState === "granted" || hasLiveCoords;
 
   // Calculate actual distance (meters)
   const approxDistance = useMemo(() => {
@@ -235,7 +248,8 @@ export default function Clock() {
       );
       return;
     }
-    if (!bypassActive && permissionState !== "granted") {
+    if (!permissionOk) {
+
       alert("Location permission is required to clock in/out.");
       return;
     }
@@ -305,7 +319,8 @@ export default function Clock() {
               </div>
             )}
 
-            {!bypassActive && permissionState !== "granted" && (
+            {!permissionOk && (
+
               <div style={{ color: "#ff7070", marginTop: 8 }}>
                 Location permission is required. Enable location access for your browser and reload.
                 {geoError ? (
@@ -340,7 +355,8 @@ export default function Clock() {
                 labelHolding="Hold to clock out…"
                 labelDone="Clocked out"
                 onConfirm={onConfirmClock}
-                disabled={busy || (!bypassActive && permissionState !== "granted") || !withinAllowedZone}
+                disabled={busy || !permissionOk || !withinAllowedZone}
+
                 danger
               />
             ) : (

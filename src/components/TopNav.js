@@ -13,7 +13,6 @@ export default function TopNav() {
   const location = useLocation();
   const { user, profile, role: ctxRole } = useAuth();
 
-  // ✅ single declaration (no duplicates)
   const effectiveRole = ctxRole || profile?.role || '';
   const admin = isAdmin(effectiveRole);
   const workerLike = isWorkerLike(effectiveRole);
@@ -27,35 +26,27 @@ export default function TopNav() {
     }
   };
 
-  // ---- Button sets ----
   const adminButtons = [
     { label: 'Dashboard', path: '/admin-dashboard' },
     { label: 'Tracks Manager', path: '/admin-tracks' },
-    //{ label: 'HR & Employees', path: '/admin-leave' },
-    //{ label: 'H&S Review', path: '/safety-review' },
-    //{ label: 'Users Manager', path: '/admin-users' },
+    { label: 'Users Manager', path: '/admin-users' },
     { label: 'Stock Room', path: '/stockroom' },
     { label: 'Task Creator', path: '/admin-task-manager' },
-    //{ label: 'Seeder', path: '/admin-task-seeder'},
-    //{ label: 'Employee Seeder', path: '/admin-employee-seeder' },
     { label: 'Register User', path: '/register' },
   ];
 
   const hrFinanceButtons = [
     { label: 'Dashboard', path: '/admin-dashboard' },
-    //{ label: 'Tracks Manager', path: '/admin-tracks' },
     { label: 'Leave Requests', path: '/admin-leave' },
-   // { label: 'H&S Review', path: '/safety-review' },
   ];
 
   const workerButtons = [
-    { label: 'Worker Dashboard', path: '/worker-dashboard' },
+    { label: 'Dashboard', path: '/worker-dashboard' },
     { label: 'Clock In/Out', path: '/clock' },
     { label: 'Apply for Leave', path: '/request-leave' },
     { label: 'Request Stock', path: '/request-supplies' },
   ];
 
-  // ---- Role → Buttons mapping ----
   let buttons;
   if (admin) {
     buttons = adminButtons;
@@ -64,14 +55,15 @@ export default function TopNav() {
   } else if (workerLike) {
     buttons = workerButtons;
   } else {
-    buttons = workerButtons; // fallback
+    buttons = workerButtons;
   }
 
-  // --- Mobile drawer state ---
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Close the drawer on route change or ESC
-  useEffect(() => { setMobileOpen(false); }, [location.pathname]);
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
+
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && setMobileOpen(false);
     window.addEventListener('keydown', onKey);
@@ -86,7 +78,7 @@ export default function TopNav() {
           <div className="logo-text"></div>
         </div>
 
-        {/* Center: nav buttons (hidden on mobile via CSS) */}
+        {/* Center: nav buttons */}
         <div className="center">
           <div className="nav-scroll">
             {buttons.map((b) => (
@@ -101,7 +93,7 @@ export default function TopNav() {
           </div>
         </div>
 
-        {/* Right: logout + avatar + hamburger (hamburger only shows on mobile via CSS) */}
+        {/* Right: logout + avatar + hamburger */}
         <div className="right">
           <button className="nav-btn" onClick={handleLogout}>
             Logout
@@ -124,7 +116,7 @@ export default function TopNav() {
         </div>
       </div>
 
-      {/* Mobile overlay + drawer (added; desktop won't see this due to CSS) */}
+      {/* Mobile overlay + drawer */}
       <div
         className={`mobile-backdrop ${mobileOpen ? 'show' : ''}`}
         onClick={() => setMobileOpen(false)}

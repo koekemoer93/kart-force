@@ -250,8 +250,8 @@ export default function LoginPage() {
     {/* Mobile splash (fades after ~1.5s; skipped if authenticated) */}
     <SplashOverlay skipIfAuthenticated={!!user} />
 
-    <div className="main-wrapper">
-      <div className="glass-card">
+    <div className="main-wrapper login-center">
+      <div className="glass-card login-card">
         <h2 style={{ textAlign: 'center' }}>Login to Kart Force</h2>
         <form onSubmit={handleLogin}>
           <input

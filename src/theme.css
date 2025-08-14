@@ -806,3 +806,80 @@ body:has(.kf-splash) {
   min-height: 100vh;       /* take up full screen height */
   background: var(--bg);   /* matches dark theme */
 }
+
+/* Center login form & make smaller */
+.main-wrapper.login-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh; /* full screen height */
+  padding: 0; /* remove extra spacing for centering */
+  background: var(--bg);
+}
+
+.glass-card.login-card {
+  max-width: 420px;  /* smaller than before */
+  width: 100%;
+  padding: 32px 28px; /* less padding than default */
+  min-height: unset; /* remove tall default */
+}
+
+/* === Mobile Optimizations (v0.1.4) === */
+@media (max-width: 768px) {
+  /* Reduce card size */
+  .glass-card {
+    max-width: 95%;
+    padding: 20px 16px;
+    margin: 12px auto;
+    min-height: unset;
+  }
+
+  /* Dashboard cards full width */
+  .admin-dashboard-layout,
+  .worker-dashboard-layout {
+    grid-template-columns: 1fr !important;
+    gap: 12px;
+    padding: 10px;
+  }
+
+  /* Reduce top spacing on mobile */
+  .main-wrapper {
+    padding: 10px;
+    gap: 12px;
+  }
+
+  /* Headings scale down */
+  h1, h2, h3 {
+    font-size: clamp(1rem, 4vw, 1.4rem);
+  }
+
+  /* Buttons full-width and taller for touch */
+  .button-primary,
+  .button-secondary,
+  button {
+    width: 100%;
+    min-height: 44px;
+    font-size: 1rem;
+  }
+
+  /* Input fields full width */
+  .input-field {
+    width: 100%;
+    font-size: 1rem;
+    padding: 10px 12px;
+  }
+
+  /* Progress bars full width */
+  .track-progress {
+    height: 10px;
+  }
+
+  /* TopNav tighten space */
+  .top-nav {
+    padding: 6px 10px;
+    gap: 6px;
+  }
+  .nav-buttons {
+    gap: 6px;
+  }
+}
