@@ -32,7 +32,7 @@ function HoldButton({
   disabled = false,
   danger = false,
 }) {
-  const [progress, setProgress] = useState(0); // 0..1
+  const [progress, setProgress] = useState(0);
   const [holding, setHolding] = useState(false);
   const startTsRef = useRef(0);
   const rafRef = useRef(null);
@@ -45,6 +45,7 @@ function HoldButton({
     startTsRef.current = 0;
     window.removeEventListener("pointerup", onPointerUpCancel, true);
     window.removeEventListener("pointercancel", onPointerUpCancel, true);
+    window.removeEventListener("pointerleave", onPointerUpCancel, true);
   };
 
   const tick = () => {
@@ -56,7 +57,6 @@ function HoldButton({
       stop();
       setProgress(1);
       onConfirm?.();
-      // brief success fill, then reset
       setTimeout(() => setProgress(0), 400);
       return;
     }
@@ -65,19 +65,18 @@ function HoldButton({
 
   const onPointerDown = (e) => {
     if (disabled || holding) return;
-    // Only react to primary pointer (avoid multi-touch edge cases)
     if (e.isPrimary === false) return;
-    e.preventDefault();
+    e.preventDefault(); // prevent ghost clicks on mobile
     setHolding(true);
     setProgress(0);
     startTsRef.current = performance.now();
     window.addEventListener("pointerup", onPointerUpCancel, true);
     window.addEventListener("pointercancel", onPointerUpCancel, true);
+    window.addEventListener("pointerleave", onPointerUpCancel, true);
     rafRef.current = requestAnimationFrame(tick);
   };
 
   const onPointerUpCancel = () => {
-    // If released before completion, cancel
     if (progress < 1) stop();
   };
 
@@ -102,8 +101,7 @@ function HoldButton({
           cursor: disabled ? "not-allowed" : "pointer",
           position: "relative",
           overflow: "hidden",
-          // mobile fixes
-          touchAction: "none",
+          touchAction: "none",               // ✅ important for mobile
           WebkitUserSelect: "none",
           userSelect: "none",
           WebkitTapHighlightColor: "transparent",
@@ -113,8 +111,6 @@ function HoldButton({
         <span style={{ position: "relative", zIndex: 2 }}>
           {holding ? labelHolding : progress >= 1 ? labelDone : labelIdle}
         </span>
-
-        {/* progress fill */}
         <span
           aria-hidden
           style={{
@@ -136,6 +132,7 @@ function HoldButton({
     </div>
   );
 }
+
 
 
 export default function Clock() {
