@@ -1,16 +1,14 @@
-
-
 {
   "name": "Kart Force",
   "short_name": "KartForce",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",
-  "theme_color": "#000000"
+  "theme_color": "#000000",
   "icons": [
-    { "src": "/icons/kartforce-192.png?v=2025-08-15", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icons/kartforce-512.png?v=2025-08-15", "sizes": "512x512", "type": "image/png" },
-    { "src": "/icons/kartforce-maskable-192.png?v=2025-08-15", "sizes": "192x192", "type": "image/png", "purpose": "maskable any" },
-    { "src": "/icons/kartforce-maskable-512.png?v=2025-08-15", "sizes": "512x512", "type": "image/png", "purpose": "maskable any" }
+    { "src": "/icons/kartforce-192.png?v=2025-08-15b", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/kartforce-512.png?v=2025-08-15b", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/kartforce-maskable-192.png?v=2025-08-15b", "sizes": "192x192", "type": "image/png", "purpose": "maskable any" },
+    { "src": "/icons/kartforce-maskable-512.png?v=2025-08-15b", "sizes": "512x512", "type": "image/png", "purpose": "maskable any" }
   ]
 }
