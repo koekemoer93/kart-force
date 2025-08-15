@@ -111,7 +111,7 @@ export default function TopNav() {
           style={{ display: 'flex', alignItems: 'center', gap: 8 }}
         >
           <BrandMark size={28} />
-          <span className="brand" style={{ fontWeight: 800 }}>Kart Force</span>
+          <span className="brand" style={{ fontWeight: 800 }}></span>
         </div>
 
         {/* Center: nav buttons (hidden on mobile via CSS) */}
