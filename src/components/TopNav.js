@@ -6,6 +6,7 @@ import { useAuth } from '../AuthContext';
 import Avatar from './Avatar';
 import './TopNav.css';
 import { isAdmin, isWorkerLike } from '../utils/roles';
+import BrandMark from "./BrandMark";
 
 export default function TopNav() {
   const navigate = useNavigate();
@@ -88,12 +89,29 @@ export default function TopNav() {
     }
   }, [mobileOpen]);
 
+  // Keyboard support on brand/home button
+  const onBrandKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      navigate('/');
+    }
+  };
+
   return (
     <>
       <div className="topnav">
-        {/* Left: logo */}
-        <div className="left" onClick={() => navigate('/')} role="button" tabIndex={0}>
-          <div className="logo-text"></div>
+        {/* Left: brand (BrandMark + title) */}
+        <div
+          className="left"
+          onClick={() => navigate('/')}
+          onKeyDown={onBrandKeyDown}
+          role="button"
+          tabIndex={0}
+          aria-label="Go to Home"
+          style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+        >
+          <BrandMark size={28} />
+          <span className="brand" style={{ fontWeight: 800 }}>Kart Force</span>
         </div>
 
         {/* Center: nav buttons (hidden on mobile via CSS) */}
@@ -153,8 +171,11 @@ export default function TopNav() {
         aria-hidden={!mobileOpen}
         tabIndex={-1}
       >
-        <div className="drawer-header">
-          <div className="drawer-brand">Kart Force</div>
+        <div className="drawer-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <div className="drawer-brand" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <BrandMark size={24} />
+            <span>Kart Force</span>
+          </div>
           <button
             className="drawer-close"
             onClick={() => setMobileOpen(false)}
