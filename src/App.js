@@ -26,6 +26,7 @@ import AdminEmployeeSeeder from './pages/AdminEmployeeSeeder';
 import Register from './pages/Register';
 import AdminTracksManager from './pages/AdminTracksManager';
 import AdminUsersManager from './pages/AdminUsersManager';
+import AdminUsersHub from "./pages/AdminUsersHub";
 
 // 🆕 Splash screen import
 import SplashScreen from './components/SplashScreen';
@@ -56,6 +57,7 @@ function App() {
           <Routes>
             {/* Public */}
             <Route path="/" element={<LoginPage />} />
+            <Route path="/admin-hr-hub" element={<ProtectedRoute isAdmin><AdminUsersHub /></ProtectedRoute>} />
             <Route path="/seed-tasks" element={<TaskSeeder />} />
             <Route path="/task-creator" element={<AdminTaskCreator />} />
             <Route path="/admin/seed-hours" element={<SeedAllHours />} />

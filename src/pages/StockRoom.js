@@ -13,7 +13,7 @@ import {
   runTransaction,
   serverTimestamp,
 } from 'firebase/firestore';
-import { createItem, receiveStock } from '../services/inventory';
+import { createItem, receiveStock, issueStock } from '../services/inventory';
 import { isAdmin, isWorkerLike } from '../utils/roles';
 
 function fmtDateTime(v) {
@@ -31,6 +31,27 @@ function fmtDateTime(v) {
   }
 }
 
+// Small inline pill buttons for +/- quick adjust
+function QtyNudger({ onNudge }) {
+  const Btn = ({ label, delta }) => (
+    <button
+      type="button"
+      className="button-secondary"
+      onClick={() => onNudge(delta)}
+      style={{ padding: '4px 8px', borderRadius: 8, fontSize: 12 }}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div className="row gap8" style={{ alignItems: 'center' }}>
+      <Btn label="−1" delta={-1} />
+      <Btn label="+1" delta={+1} />
+      <Btn label="+10" delta={+10} />
+    </div>
+  );
+}
+
 export default function StockRoom() {
   const { user, profile, role: ctxRole } = useAuth();
   const effectiveRole = ctxRole || profile?.role || '';
@@ -39,7 +60,7 @@ export default function StockRoom() {
 
   const [items, setItems] = useState([]);
   const [reqs, setReqs] = useState([]);
-  const [selectedReq, setSelectedReq] = useState(null); // ⬅️ details modal
+  const [selectedReq, setSelectedReq] = useState(null); // details modal
 
   // forms
   const [newItem, setNewItem] = useState({
@@ -50,18 +71,20 @@ export default function StockRoom() {
     maxQty: 0,
     initialQty: 0,
   });
-  const [receive, setReceive] = useState({ itemId: '', qty: 0, reason: 'receive' });
 
-  // 🔎 filters/sort
+  const [receive, setReceive] = useState({ itemId: '', qty: 0, reason: 'receive' });
+  const [issue, setIssue] = useState({ itemId: '', qty: 0, reason: 'issue' }); // NEW: manual issue
+
+  // filters/sort
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [search, setSearch] = useState('');
-  const [sortBy, setSortBy] = useState('name'); // logic kept; controls hidden
-  const [sortDir, setSortDir] = useState('asc'); // logic kept; controls hidden
-  const [showLowStockOnly, setShowLowStockOnly] = useState(false); // logic kept; controls hidden
+  const [sortBy, setSortBy] = useState('name');
+  const [sortDir, setSortDir] = useState('asc');
+  const [showLowStockOnly, setShowLowStockOnly] = useState(false);
 
   // view controls (forced list)
-  const [density, setDensity] = useState('cozy'); // cozy|compact
-  const [viewMode, setViewMode] = useState('list'); // cards|list (forced)
+  const [density, setDensity] = useState('cozy');
+  const [viewMode, setViewMode] = useState('list');
   useEffect(() => {
     if (viewMode !== 'list') setViewMode('list');
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -89,7 +112,8 @@ export default function StockRoom() {
     };
   }, []);
 
-  const pendingReqs = useMemo(() => reqs.filter((r) => r.status === 'pending'), [reqs]);
+  const pendingReqs = useMemo(() => reqs.filter((r) => (r.status || 'pending') === 'pending'), [reqs]);
+  const approvedReqs = useMemo(() => reqs.filter((r) => r.status === 'approved'), [reqs]);
 
   const itemsById = useMemo(() => {
     const map = new Map();
@@ -164,6 +188,9 @@ export default function StockRoom() {
     return arr;
   }, [items, categoryFilter, search, sortBy, sortDir, showLowStockOnly]);
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Forms
+  // ─────────────────────────────────────────────────────────────────────────────
   async function handleCreateItem(e) {
     e.preventDefault();
     if (!admin) return alert('Admin only.');
@@ -207,7 +234,74 @@ export default function StockRoom() {
     }
   }
 
-  async function handleFulfill(requestId) {
+  async function handleIssue(e) {
+    e.preventDefault();
+    if (!admin) return alert('Admin only.');
+    try {
+      if (!issue.itemId) return alert('Select item');
+      const qty = Number(issue.qty);
+      if (!qty || qty <= 0) return alert('Enter quantity > 0');
+      await issueStock({ itemId: issue.itemId, qty, reason: issue.reason, byUid: user?.uid });
+      setIssue({ itemId: '', qty: 0, reason: 'issue' });
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Reservation Workflow
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  // Helper to resolve items list -> concrete inventory doc refs and enforce availability
+  async function txResolveAndReserve(tx, request, itemsByIdLocal, itemsByNameMap) {
+    const itemsInReq = Array.isArray(request.items) ? request.items : [];
+    if (itemsInReq.length === 0) throw new Error('Request has no items.');
+
+    // Resolve inventory docs
+    const resolved = itemsInReq.map((it) => {
+      const qty = Number(it.qty || 0);
+      if (!qty || qty <= 0) return null;
+
+      let invDocId = it.itemId;
+      if (!invDocId && it.name) {
+        const found = itemsByNameMap.get(String(it.name).toLowerCase());
+        if (found) invDocId = found.id;
+      }
+      if (!invDocId) {
+        throw new Error(`Cannot resolve inventory item for "${it.name || 'unknown'}".`);
+      }
+      const inv = itemsByIdLocal.get(invDocId);
+      return {
+        itemId: invDocId,
+        name: it.name || inv?.name || invDocId,
+        unit: it.unit || inv?.unit || '',
+        qty,
+        ref: doc(db, 'inventory', invDocId),
+      };
+    }).filter(Boolean);
+
+    // Pull snapshots for availability check
+    const snaps = [];
+    for (const r of resolved) snaps.push(await tx.get(r.ref));
+
+    // Check available (qty - reservedQty)
+    resolved.forEach((r, i) => {
+      const d = snaps[i].data();
+      const onHand = Number(d?.qty ?? 0);
+      const reserved = Number(d?.reservedQty ?? 0);
+      const available = onHand - reserved;
+      if (available < r.qty) {
+        throw new Error(
+          `${r.name}: need ${r.qty} ${r.unit || ''}, only ${available} available (on hand ${onHand}, reserved ${reserved}).`
+        );
+      }
+    });
+
+    return { resolved, snaps };
+  }
+
+  async function handleApprove(requestId) {
     if (!admin) return alert('Admin only.');
     try {
       await runTransaction(db, async (tx) => {
@@ -216,71 +310,154 @@ export default function StockRoom() {
         if (!reqSnap.exists()) throw new Error('Request not found.');
 
         const request = reqSnap.data();
-        if (request.status && request.status !== 'pending') {
-          throw new Error(`Request is already ${request.status}.`);
-        }
-        const itemsInReq = Array.isArray(request.items) ? request.items : [];
-        if (itemsInReq.length === 0) throw new Error('Request has no items.');
+        const status = request.status || 'pending';
+        if (status !== 'pending') throw new Error(`Request is already ${status}.`);
 
-        const invRefs = [];
-        const resolved = [];
+        const { resolved, snaps } = await txResolveAndReserve(tx, request, itemsById, itemsByNameLower);
 
-        itemsInReq.forEach((it) => {
-          const qty = Number(it.qty || 0);
-          if (!qty || qty <= 0) return;
-
-          let invDocId = it.itemId;
-          if (!invDocId && it.name) {
-            const found = itemsByNameLower.get(String(it.name).toLowerCase());
-            if (found) invDocId = found.id;
-          }
-          if (!invDocId) {
-            throw new Error(`Cannot resolve inventory item for "${it.name || 'unknown'}".`);
-          }
-
-          const ref = doc(db, 'inventory', invDocId);
-          invRefs.push(ref);
-          resolved.push({
-            ref,
-            qtyToDeduct: qty,
-            label: it.name || invDocId,
-            unit: it.unit || itemsById.get(invDocId)?.unit || '',
-          });
+        // Reserve by increasing reservedQty
+        resolved.forEach((r, i) => {
+          const d = snaps[i].data();
+          const currentReserved = Number(d?.reservedQty ?? 0);
+          tx.update(r.ref, { reservedQty: currentReserved + r.qty });
         });
 
-        const invSnaps = [];
-        for (const ref of invRefs) invSnaps.push(await tx.get(ref));
-
-        const updates = [];
-        resolved.forEach((line, i) => {
-          const snap = invSnaps[i];
-          if (!snap.exists()) throw new Error(`Inventory doc missing for "${line.label}".`);
-          const data = snap.data();
-          const current = Number(data.qty ?? 0);
-          const newQty = current - line.qtyToDeduct;
-          if (newQty < 0)
-            throw new Error(
-              `Not enough stock for "${line.label}" — need ${line.qtyToDeduct}, have ${current}.`
-            );
-          updates.push({ ref: line.ref, newQty });
-        });
-
-        updates.forEach((u) => tx.update(u.ref, { qty: u.newQty }));
+        // Mark request approved + store resolved items (locks the mapping)
         tx.update(reqRef, {
-          status: 'fulfilled',
-          fulfilledAt: serverTimestamp(),
-          fulfilledBy: user?.uid || null,
+          status: 'approved',
+          approvedAt: serverTimestamp(),
+          approvedBy: user?.uid || null,
+          reservedItems: resolved.map(({ itemId, name, unit, qty }) => ({ itemId, name, unit, qty })),
         });
       });
-
-      alert('Stock deducted and request fulfilled ✔');
-      setSelectedReq(null); // close modal if open
+      alert('Reserved stock for this request ✔');
+      setSelectedReq(null);
     } catch (err) {
       console.error(err);
       alert(err.message || String(err));
     }
   }
 
+  async function handleDispatch(requestId) {
+    if (!admin) return alert('Admin only.');
+    try {
+      await runTransaction(db, async (tx) => {
+        const reqRef = doc(db, 'supplyRequests', requestId);
+        const reqSnap = await tx.get(reqRef);
+        if (!reqSnap.exists()) throw new Error('Request not found.');
+        const request = reqSnap.data();
+        if (request.status !== 'approved') throw new Error(`Request is ${request.status || 'not approved'}.`);
+
+        const lines = Array.isArray(request.reservedItems) && request.reservedItems.length
+          ? request.reservedItems
+          : (Array.isArray(request.items) ? request.items : []);
+
+        // Resolve lines to inventory refs
+        const resolved = lines.map((it) => {
+          const qty = Number(it.qty || 0);
+          if (!qty || qty <= 0) return null;
+          const invDocId = it.itemId || itemsByNameLower.get(String(it.name || '').toLowerCase())?.id;
+          if (!invDocId) throw new Error(`Cannot resolve inventory item for dispatch: "${it.name || 'unknown'}"`);
+          return {
+            itemId: invDocId,
+            name: it.name,
+            unit: it.unit || '',
+            qty,
+            ref: doc(db, 'inventory', invDocId),
+          };
+        }).filter(Boolean);
+
+        // Pull snapshots
+        const snaps = [];
+        for (const r of resolved) snaps.push(await tx.get(r.ref));
+
+        // Deduct qty and release reservedQty
+        resolved.forEach((r, i) => {
+          const d = snaps[i].data();
+          const current = Number(d?.qty ?? 0);
+          const reserved = Number(d?.reservedQty ?? 0);
+          const newQty = current - r.qty;
+          const newReserved = reserved - r.qty;
+          if (newQty < 0) throw new Error(`${r.name}: not enough stock to dispatch.`);
+          if (newReserved < 0) throw new Error(`${r.name}: reservation underflow.`);
+          tx.update(r.ref, { qty: newQty, reservedQty: newReserved });
+        });
+
+        tx.update(reqRef, {
+          status: 'dispatched',
+          dispatchedAt: serverTimestamp(),
+          dispatchedBy: user?.uid || null,
+        });
+      });
+      alert('Dispatched & deducted stock ✔');
+      setSelectedReq(null);
+    } catch (err) {
+      console.error(err);
+      alert(err.message || String(err));
+    }
+  }
+
+  async function handleUnapprove(requestId) {
+    if (!admin) return alert('Admin only.');
+    try {
+      await runTransaction(db, async (tx) => {
+        const reqRef = doc(db, 'supplyRequests', requestId);
+        const reqSnap = await tx.get(reqRef);
+        if (!reqSnap.exists()) throw new Error('Request not found.');
+        const request = reqSnap.data();
+        if (request.status !== 'approved') throw new Error(`Request is ${request.status || 'not approved'}.`);
+
+        const lines = Array.isArray(request.reservedItems) && request.reservedItems.length
+          ? request.reservedItems
+          : (Array.isArray(request.items) ? request.items : []);
+
+        // Resolve + pull snapshots
+        const resolved = lines.map((it) => {
+          const qty = Number(it.qty || 0);
+          if (!qty || qty <= 0) return null;
+          const invDocId = it.itemId || itemsByNameLower.get(String(it.name || '').toLowerCase())?.id;
+          if (!invDocId) throw new Error(`Cannot resolve inventory item to release: "${it.name || 'unknown'}"`);
+          return {
+            itemId: invDocId,
+            name: it.name,
+            unit: it.unit || '',
+            qty,
+            ref: doc(db, 'inventory', invDocId),
+          };
+        }).filter(Boolean);
+
+        const snaps = [];
+        for (const r of resolved) snaps.push(await tx.get(r.ref));
+
+        // Release reservation
+        resolved.forEach((r, i) => {
+          const d = snaps[i].data();
+          const reserved = Number(d?.reservedQty ?? 0);
+          const newReserved = reserved - r.qty;
+          if (newReserved < 0) throw new Error(`${r.name}: reservation underflow on release.`);
+          tx.update(r.ref, { reservedQty: newReserved });
+        });
+
+        // Back to pending and clear reservedItems metadata
+        tx.update(reqRef, {
+          status: 'pending',
+          approvedAt: null,
+          approvedBy: null,
+          reservedItems: [],
+        });
+      });
+
+      alert('Reservation released; request back to pending.');
+      setSelectedReq(null);
+    } catch (err) {
+      console.error(err);
+      alert(err.message || String(err));
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────────────────────────────────────
   return (
     <>
       <TopNav />
@@ -302,14 +479,13 @@ export default function StockRoom() {
                     key={r.id}
                     className="card-inner"
                     style={{ padding: 8, marginBottom: 8, cursor: 'pointer' }}
-                    onClick={() => setSelectedReq(r)}               // ⬅️ open details
+                    onClick={() => setSelectedReq(r)}
                   >
                     <div className="row between" style={{ alignItems: 'flex-start' }}>
                       <strong>{r.trackId}</strong>
                       <span className="small muted">{r.status || 'pending'}</span>
                     </div>
 
-                    {/* Hint if there are notes */}
                     {!!r.note && (
                       <div className="small" style={{ marginTop: 4, opacity: 0.8 }}>
                         <em>Note attached — click to view</em>
@@ -330,11 +506,66 @@ export default function StockRoom() {
                           className="button-primary"
                           style={{ width: '100%' }}
                           onClick={(e) => {
-                            e.stopPropagation(); // don't open modal
-                            handleFulfill(r.id);
+                            e.stopPropagation();
+                            handleApprove(r.id);
                           }}
                         >
-                          Fulfill & Deduct Stock
+                          Approve & Reserve
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Approved Reservations */}
+            <div className="glass-subcard">
+              <h3>Approved Reservations</h3>
+              {approvedReqs.length === 0 ? (
+                <p className="muted">No approved reservations.</p>
+              ) : (
+                approvedReqs.map((r) => (
+                  <div
+                    key={r.id}
+                    className="card-inner"
+                    style={{ padding: 8, marginBottom: 8, cursor: 'pointer' }}
+                    onClick={() => setSelectedReq(r)}
+                  >
+                    <div className="row between" style={{ alignItems: 'flex-start' }}>
+                      <strong>{r.trackId}</strong>
+                      <span className="small muted">approved</span>
+                    </div>
+
+                    <ul style={{ marginTop: 6 }}>
+                      {(r.reservedItems?.length ? r.reservedItems : r.items)?.map((it, idx) => (
+                        <li key={idx} className="small">
+                          {it.name} — {it.qty} {it.unit}
+                        </li>
+                      ))}
+                    </ul>
+
+                    {admin && (
+                      <div className="row gap8" style={{ marginTop: 10 }}>
+                        <button
+                          className="button-primary"
+                          style={{ flex: 1 }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDispatch(r.id);
+                          }}
+                        >
+                          Dispatch Now
+                        </button>
+                        <button
+                          className="button-secondary"
+                          style={{ flex: 1 }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleUnapprove(r.id);
+                          }}
+                        >
+                          Unapprove (Release)
                         </button>
                       </div>
                     )}
@@ -416,29 +647,76 @@ export default function StockRoom() {
                         <option key={it.id} value={it.id}>{it.name}</option>
                       ))}
                     </select>
-                    <div className="row gap12" style={{ flexWrap: 'wrap' }}>
+                    <div className="row gap12" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
                       <input
                         className="input-field"
                         type="number"
                         placeholder="Quantity"
                         value={receive.qty}
                         onChange={(e) => setReceive({ ...receive, qty: e.target.value })}
+                        style={{ flex: '0 0 180px' }}
+                      />
+                      <QtyNudger
+                        onNudge={(delta) =>
+                          setReceive((s) => ({ ...s, qty: Math.max(0, Number(s.qty || 0) + delta) }))
+                        }
                       />
                       <input
                         className="input-field"
                         placeholder="Reason (optional)"
                         value={receive.reason}
                         onChange={(e) => setReceive({ ...receive, reason: e.target.value })}
+                        style={{ flex: 1 }}
                       />
                     </div>
                     <button className="button-primary" type="submit">Add to Inventory</button>
+                  </form>
+                </div>
+
+                {/* Manual Issue / Adjust */}
+                <div>
+                  <h4 style={{ margin: '6px 0 8px 0' }}>Issue / Adjust Stock</h4>
+                  <form onSubmit={handleIssue}>
+                    <select
+                      className="input-field"
+                      value={issue.itemId}
+                      onChange={(e) => setIssue({ ...issue, itemId: e.target.value })}
+                    >
+                      <option value="">Select item…</option>
+                      {items.map((it) => (
+                        <option key={it.id} value={it.id}>{it.name}</option>
+                      ))}
+                    </select>
+                    <div className="row gap12" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+                      <input
+                        className="input-field"
+                        type="number"
+                        placeholder="Quantity"
+                        value={issue.qty}
+                        onChange={(e) => setIssue({ ...issue, qty: e.target.value })}
+                        style={{ flex: '0 0 180px' }}
+                      />
+                      <QtyNudger
+                        onNudge={(delta) =>
+                          setIssue((s) => ({ ...s, qty: Math.max(0, Number(s.qty || 0) + delta) }))
+                        }
+                      />
+                      <input
+                        className="input-field"
+                        placeholder="Reason (e.g., usage, damage)"
+                        value={issue.reason}
+                        onChange={(e) => setIssue({ ...issue, reason: e.target.value })}
+                        style={{ flex: 1 }}
+                      />
+                    </div>
+                    <button className="button-secondary" type="submit">Deduct from Inventory</button>
                   </form>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* ↓↓↓ Moved toolbar HERE — right above the list ↓↓↓ */}
+          {/* Toolbar (above the list) */}
           <div className="stock-toolbar" style={{ marginTop: 12, marginBottom: 12 }}>
             <select
               className="input-field"
@@ -483,17 +761,23 @@ export default function StockRoom() {
                 {visibleItems.map((it) => {
                   const qty = Number(it.qty || 0);
                   const min = Number(it.minQty || 0);
+                  const res = Number(it.reservedQty || 0);
                   const low = qty <= min;
                   return (
                     <tr key={it.id}>
                       <td data-label="Name" className="ellipsis" title={it.name}>{it.name}</td>
                       <td data-label="Category" className="muted">{it.category || '—'}</td>
                       <td data-label="Unit">{it.unit || '—'}</td>
-                      <td data-label="Qty">{qty}</td>
+                      <td data-label="Qty" title={`Reserved: ${res}`}>{qty}</td>
                       <td data-label="Status">
                         <span className="chip" style={{ background: low ? '#ff6b6b' : '#2f2f2f' }}>
                           {low ? 'Low' : 'OK'}
                         </span>
+                        {res > 0 && (
+                          <span className="chip" style={{ marginLeft: 6, background: '#2a2a2a' }}>
+                            Res {res}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -532,6 +816,8 @@ export default function StockRoom() {
             <div className="small muted" style={{ marginTop: 6 }}>
               Status: <strong>{selectedReq.status || 'pending'}</strong>
               {selectedReq.createdAt && <> · Created: {fmtDateTime(selectedReq.createdAt)}</>}
+              {selectedReq.approvedAt && <> · Approved: {fmtDateTime(selectedReq.approvedAt)}</>}
+              {selectedReq.fulfilledAt && <> · Fulfilled: {fmtDateTime(selectedReq.fulfilledAt)}</>}
             </div>
 
             {selectedReq.note && (
@@ -559,7 +845,7 @@ export default function StockRoom() {
             <div className="glass-card" style={{ marginTop: 12, padding: 12 }}>
               <div className="small muted" style={{ marginBottom: 6 }}>Items</div>
               <ul style={{ margin: 0 }}>
-                {selectedReq.items?.map((line, i) => (
+                {(selectedReq.reservedItems?.length ? selectedReq.reservedItems : selectedReq.items)?.map((line, i) => (
                   <li key={i} className="small">
                     {line.name} — {line.qty} {line.unit}
                   </li>
@@ -567,15 +853,35 @@ export default function StockRoom() {
               </ul>
             </div>
 
-            {admin && selectedReq.status === 'pending' && (
-              <div style={{ marginTop: 14 }}>
-                <button
-                  className="button-primary"
-                  style={{ width: '100%' }}
-                  onClick={() => handleFulfill(selectedReq.id)}
-                >
-                  Fulfill & Deduct Stock
-                </button>
+            {admin && (selectedReq.status === 'pending' || selectedReq.status === 'approved') && (
+              <div style={{ marginTop: 14 }} className="row gap8">
+                {selectedReq.status === 'pending' && (
+                  <button
+                    className="button-primary"
+                    style={{ flex: 1 }}
+                    onClick={() => handleApprove(selectedReq.id)}
+                  >
+                    Approve & Reserve
+                  </button>
+                )}
+                {selectedReq.status === 'approved' && (
+                  <>
+                    <button
+                      className="button-primary"
+                      style={{ flex: 1 }}
+                      onClick={() => handleDispatch(selectedReq.id)}
+                    >
+                      Dispatch
+                    </button>
+                    <button
+                      className="button-secondary"
+                      style={{ flex: 1 }}
+                      onClick={() => handleUnapprove(selectedReq.id)}
+                    >
+                      Unapprove (Release)
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>

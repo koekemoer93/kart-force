@@ -29,10 +29,11 @@ export default function TopNav() {
   const adminButtons = [
     { label: 'Dashboard', path: '/admin-dashboard' },
     //{ label: 'Tracks Manager', path: '/admin-tracks' },
-    //{ label: 'Users Manager', path: '/admin-users' },
+    { label: 'Users Manager', path: '/admin-users' },
     { label: 'Stock Room', path: '/stockroom' },
-    { label: 'Task Creator', path: '/admin-task-manager' },
-    { label: 'Register User', path: '/register' },
+    //{ label: 'Task Creator', path: '/admin-task-manager' },
+   // { label: 'Register User', path: '/register' },
+    { label: 'HR Hub', path: '/admin-hr-hub' },
   ];
 
   const hrFinanceButtons = [

@@ -221,3 +221,32 @@ export async function ensureUserRole(uid, role = 'worker') {
     await setDoc(uref, { role, createdAt: serverTimestamp() });
   }
 }
+
+/* 
+* Issue/deduct stock directly (e.g., damage, manual correction).
+ * Validates non-negative result and ignores reservedQty (this is a manual action).
+ */
+export async function issueStock({ itemId, qty, reason = 'issue', byUid = null }) {
+  if (!itemId) throw new Error('itemId required');
+  const n = Number(qty);
+  if (!n || n <= 0) throw new Error('Quantity must be > 0');
+
+  const ref = doc(db, 'inventory', itemId);
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) throw new Error('Inventory item not found');
+    const data = snap.data();
+    const current = Number(data.qty ?? 0);
+    const newQty = current - n;
+    if (newQty < 0) {
+      throw new Error(`Not enough stock: need ${n}, have ${current}.`);
+    }
+    tx.update(ref, {
+      qty: newQty,
+      // touch timestamp to help with list recency if you use it
+      updatedAt: serverTimestamp(),
+      lastReason: reason || 'issue',
+      lastBy: byUid || null,
+    });
+  });
+}
