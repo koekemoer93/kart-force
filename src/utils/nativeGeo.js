@@ -1,15 +1,17 @@
 // src/utils/nativeGeo.js
 // Unified location helper: prefers Capacitor native when available, otherwise
 // uses a Safari-friendly web strategy with a short refining watch to improve accuracy.
-// Honors your existing BYPASS + MOCK env/localStorage flags to keep behavior consistent.
+// Honors your existing BYPASS + MOCK env/localStorage flags (but mocks are ignored in production).
 
 import { Capacitor } from '@capacitor/core';
 let Geolocation;
 try { Geolocation = require('@capacitor/geolocation').Geolocation; } catch {}
 
-// ---- Mock / bypass (match your geo.js behavior) ----
+// ---- Env flags ----
+const IS_PROD = process.env.NODE_ENV === 'production';
 const BYPASS = String(process.env.REACT_APP_BYPASS_GEOFENCE || '').toLowerCase() === 'true';
 
+// ---- Mock helpers (match your geo.js behavior) ----
 function parsePair(s) {
   if (!s) return null;
   const parts = String(s).split(',').map((x) => parseFloat(String(x).trim()));
@@ -18,18 +20,22 @@ function parsePair(s) {
 }
 const ENV_MOCK = parsePair(process.env.REACT_APP_MOCK_GEO);
 const LS_MOCK = (() => {
-  try { return parsePair(localStorage.getItem('mockGeo')); } catch { return null; }
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    return parsePair(localStorage.getItem('mockGeo'));
+  } catch { return null; }
 })();
 
+// ---- Common helpers ----
 function normalize(p) {
   const c = p?.coords || p;
   const lat = c?.latitude;
   const lng = c?.longitude ?? c?.lng;
-  const accuracy = c?.accuracy ?? 0;
+  const accuracy = typeof c?.accuracy === 'number' ? c.accuracy : 0;
   if (typeof lat !== 'number' || typeof lng !== 'number') return null;
   return {
     coords: { latitude: lat, longitude: lng, accuracy },
-    timestamp: Date.now()
+    timestamp: Date.now(),
   };
 }
 
@@ -37,10 +43,20 @@ const isNative = () => {
   try { return Capacitor?.isNativePlatform?.() === true; } catch { return false; }
 };
 
-/** Returns mock/bypass coords if configured, else null */
+/** Returns mock/bypass coords if configured, else null.
+ *  - BYPASS still works in all envs (your choice).
+ *  - MOCKS are **disabled in production** to avoid accidental fake GPS.
+ */
 function getMockOrBypass() {
-  if (BYPASS) return { coords: ENV_MOCK || LS_MOCK || { latitude: 0, longitude: 0, accuracy: 0 }, bypass: true };
-  if (ENV_MOCK || LS_MOCK) return { coords: ENV_MOCK || LS_MOCK, mock: true };
+  if (BYPASS) {
+    return {
+      coords: ENV_MOCK || LS_MOCK || { latitude: 0, longitude: 0, accuracy: 0 },
+      bypass: true,
+    };
+  }
+  if (!IS_PROD && (ENV_MOCK || LS_MOCK)) {
+    return { coords: ENV_MOCK || LS_MOCK, mock: true };
+  }
   return null;
 }
 
@@ -79,7 +95,7 @@ export async function getCurrentPosition(options = {}) {
 /**
  * Refines accuracy on the web by watching briefly (default 8s).
  * On native (Capacitor), a single getCurrentPosition is already good.
- * Honors BYPASS/MOCK.
+ * Honors BYPASS/MOCK (mocks ignored in prod).
  */
 export async function getImprovedPosition({ windowMs = 8000 } = {}) {
   const special = getMockOrBypass();
@@ -102,23 +118,23 @@ export async function getImprovedPosition({ windowMs = 8000 } = {}) {
       (p) => {
         const n = normalize(p);
         if (!n) return;
+
         // keep the best (lowest accuracy)
         if (!best || (n.coords.accuracy ?? 99999) < (best.coords.accuracy ?? 99999)) {
           best = n;
         }
-        // stop early if already precise
+        // stop early if already precise or after the window
         if ((n.coords.accuracy ?? 99999) <= 30) {
-          navigator.geolocation.clearWatch(wid);
+          try { navigator.geolocation.clearWatch(wid); } catch {}
           resolve();
         } else if (Date.now() - start >= windowMs) {
-          navigator.geolocation.clearWatch(wid);
+          try { navigator.geolocation.clearWatch(wid); } catch {}
           resolve();
         }
       },
       (err) => {
         try { navigator.geolocation.clearWatch(wid); } catch {}
-        if (!best) reject(err);
-        else resolve();
+        if (!best) reject(err); else resolve();
       },
       { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
     );
@@ -128,7 +144,9 @@ export async function getImprovedPosition({ windowMs = 8000 } = {}) {
   return best;
 }
 
-/** watchPosition wrapper for both native and web. Returns a stop() function. Honors BYPASS/MOCK by emitting once. */
+/** watchPosition wrapper for both native and web. Returns a stop() function.
+ *  Honors BYPASS/MOCK by emitting once. (Mocks ignored in prod.)
+ */
 export function watchPosition(success, error, options = {}) {
   const special = getMockOrBypass();
   if (special) {
