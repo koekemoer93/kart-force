@@ -1,4 +1,3 @@
-// src/pages/AdminTaskManager.js
 import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '../firebase';
 import {
@@ -14,14 +13,11 @@ import {
 import TopNav from '../components/TopNav';
 import { useTracks } from '../hooks/useTracks';
 import { ROLE_OPTIONS, ROLE_LABELS } from '../constants/roles';
-import { seedTasksNow } from '../services/seeder'; // ✅ Seed action brought here
+import { seedTasksNow, seedTasksRange } from '../services/seeder';
+import { ALL_TRACKS_TOKEN, ALL_ROLES_TOKEN } from '../services/seeder';
 
 const FREQ_OPTIONS = ['daily', 'weekly', 'monthly'];
 const WEEKDAYS = ['mon','tue','wed','thu','fri','sat','sun'];
-
-// ✅ Special tokens (must match services/seeder + the values used when saving)
-const ALL_TRACKS_TOKEN = '__all_tracks__';
-const ALL_ROLES_TOKEN  = '__all_roles__';
 
 function normalizeTemplateDoc(docSnap) {
   const d = docSnap.data() || {};
@@ -42,31 +38,35 @@ function normalizeTemplateDoc(docSnap) {
   };
 }
 
+function ymd(d) {
+  const dt = new Date(d);
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
 export default function AdminTaskManager() {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // 🔥 Seed state
-  const [seeding, setSeeding] = useState(false);
-  const [seedResult, setSeedResult] = useState(null);
-
-  // 🔥 Tracks from Firestore (array of { id, displayName })
+  // Tracks from Firestore (array of { id, displayName })
   const tracksList = useTracks();
   const trackOptions = useMemo(() => {
     const live = Array.isArray(tracksList)
       ? tracksList.map(t => ({ value: t.id, label: t.displayName || t.id }))
       : [];
-    // Prepend “All tracks”
     return [{ value: ALL_TRACKS_TOKEN, label: 'All tracks (every site)' }, ...live];
   }, [tracksList]);
 
-  // Roles (centralized) + prepend “All roles”
+  // Roles (centralized) + prepend "All roles"
   const roleOptions = useMemo(() => {
     const live = ROLE_OPTIONS.map(r => ({ value: r, label: ROLE_LABELS?.[r] ?? r }));
     return [{ value: ALL_ROLES_TOKEN, label: 'All roles' }, ...live];
   }, []);
 
+  // Template form
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
@@ -76,10 +76,9 @@ export default function AdminTaskManager() {
     daysOfWeek: [],
   });
 
-  // Pick a default concrete track once options arrive (if user moves away from “All”)
   useEffect(() => {
     if (!newTask.assignedTrack && trackOptions.length) {
-      setNewTask(s => ({ ...s, assignedTrack: trackOptions[0].value })); // ALL by default
+      setNewTask(s => ({ ...s, assignedTrack: trackOptions[0].value })); // default ALL
     }
   }, [trackOptions, newTask.assignedTrack]);
 
@@ -116,11 +115,10 @@ export default function AdminTaskManager() {
     if (submitting) return;
 
     const { title, description, frequency, role, assignedTrack, daysOfWeek } = newTask;
-
     if (!title.trim()) return alert('Task title is required');
 
     if (frequency === 'weekly' && daysOfWeek.length === 0) {
-      const cont = window.confirm('No weekdays selected. Continue anyway?');
+      const cont = window.confirm('No weekdays selected. Continue anyway? (Defaults to Mondays)');
       if (!cont) return;
     }
 
@@ -136,7 +134,6 @@ export default function AdminTaskManager() {
         createdAt: serverTimestamp(),
       });
 
-      // Clear form (keep last selections for speed)
       setNewTask({
         title: '',
         description: '',
@@ -164,17 +161,72 @@ export default function AdminTaskManager() {
     }
   };
 
-  // 🔥 Seed today (no duplicates, respects daysOfWeek, expands ALL_* tokens)
-  async function handleSeedToday() {
+  // -----------------------------
+  // Bulk Seeder panel (filters)
+  // -----------------------------
+  const todayStr = ymd(new Date());
+  const [seedStart, setSeedStart] = useState(todayStr);
+  const [seedEnd, setSeedEnd] = useState(todayStr);
+  const [seedTrack, setSeedTrack] = useState(ALL_TRACKS_TOKEN);
+  const [seedRoles, setSeedRoles] = useState([]); // empty = all roles
+  const [seedFreqs, setSeedFreqs] = useState(new Set(FREQ_OPTIONS)); // default: all
+  const [seeding, setSeeding] = useState(false);
+  const [seedResult, setSeedResult] = useState(null);
+
+  const toggleSeedRole = (role) => {
+    setSeedRoles((prev) => {
+      const exists = prev.includes(role);
+      if (exists) return prev.filter((r) => r !== role);
+      return [...prev, role];
+    });
+  };
+
+  const toggleSeedFreq = (freq) => {
+    setSeedFreqs((prev) => {
+      const next = new Set(prev);
+      if (next.has(freq)) next.delete(freq); else next.add(freq);
+      return next;
+    });
+  };
+
+  const selectAllRoles = () => setSeedRoles([...ROLE_OPTIONS]);
+  const clearRoles = () => setSeedRoles([]);
+
+  async function handleSeedSelected() {
     if (seeding) return;
-    const ok = window.confirm('Seed tasks for TODAY from all templates?');
-    if (!ok) return;
+    const startDate = new Date(seedStart);
+    const endDate = new Date(seedEnd);
+    if (isNaN(startDate) || isNaN(endDate)) return alert('Please pick valid dates.');
+    if (endDate < startDate) return alert('End date must be on/after start date.');
+
+    const includeFrequencies = Array.from(seedFreqs);
+    const includeRoles = seedRoles.slice(); // empty means "all roles" in the seeder
+    const includeTrack = seedTrack;
+
+    const confirmMsg =
+      `Seed tasks from templates for ${ymd(startDate)} → ${ymd(endDate)}\n` +
+      `Track: ${includeTrack === ALL_TRACKS_TOKEN ? 'All tracks' : includeTrack}\n` +
+      `Roles: ${includeRoles.length ? includeRoles.join(', ') : 'All roles'}\n` +
+      `Frequencies: ${includeFrequencies.join(', ')}`;
+    if (!window.confirm(confirmMsg)) return;
+
     try {
       setSeeding(true);
       setSeedResult(null);
-      const result = await seedTasksNow({ date: new Date() });
+      const result = await seedTasksRange({
+        startDate,
+        endDate,
+        includeRoles,
+        includeFrequencies,
+        includeTrack,
+      });
       setSeedResult(result);
-      alert(`Seeding complete for ${result.date}.\nCreated: ${result.createdCount}\nSkipped: ${result.skippedCount}`);
+      alert(
+        `Seeding complete.\n` +
+        `Range: ${result.start} → ${result.end} (${result.daysProcessed} day(s))\n` +
+        `Created: ${result.createdCount}\n` +
+        `Skipped: ${result.skippedCount}`
+      );
     } catch (e) {
       console.error('Seed error:', e);
       alert(e?.message || 'Seeding failed.');
@@ -183,7 +235,8 @@ export default function AdminTaskManager() {
     }
   }
 
-  // Helper: pretty labels for list view
+  // -----------------------------
+
   const prettyTrack = (val) => {
     if (val === ALL_TRACKS_TOKEN) return 'All tracks';
     const item = trackOptions.find(o => o.value === val);
@@ -199,22 +252,120 @@ export default function AdminTaskManager() {
       <TopNav role="admin" />
 
       <div className="main-wrapper" style={{ padding: 20 }}>
-        {/* Header row with Seed button */}
+        {/* Header */}
         <div className="glass-card" style={{ padding: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <h2 style={{ margin: 0 }}>Admin Task Manager</h2>
           <button
             className="button-primary"
-            onClick={handleSeedToday}
+            onClick={async () => {
+              if (seeding) return;
+              if (!window.confirm('Seed tasks for TODAY (all tracks, all roles, all freqs)?')) return;
+              try {
+                setSeeding(true); setSeedResult(null);
+                const result = await seedTasksNow({ date: new Date() });
+                setSeedResult({ start: result.date, end: result.date, daysProcessed: 1, createdCount: result.createdCount, skippedCount: result.skippedCount });
+                alert(`Seeded ${result.date} → Created: ${result.createdCount}, Skipped: ${result.skippedCount}`);
+              } catch (e) {
+                console.error(e);
+                alert(e?.message || 'Seeding failed.');
+              } finally {
+                setSeeding(false);
+              }
+            }}
             disabled={seeding}
             title="Create today's tasks from all templates"
             style={{ padding: '8px 12px', borderRadius: 10, fontWeight: 700 }}
           >
-            {seeding ? 'Seeding…' : 'Seed Today'}
+            {seeding ? 'Seeding…' : 'Seed Today (All)'}
           </button>
         </div>
 
-        {/* Add form */}
-        <form onSubmit={addTemplate} className="glass-card" style={{ padding: 20, marginTop: 16, marginBottom: 30 }}>
+        {/* Bulk Seeder Panel */}
+        <div className="glass-card" style={{ padding: 20, marginTop: 16, marginBottom: 30 }}>
+          <h3 style={{ marginTop: 0 }}>Bulk Seed — Filters</h3>
+
+          <div className="row gap12 wrap" style={{ marginBottom: 12 }}>
+            <div>
+              <div className="small muted">Start date</div>
+              <input type="date" className="input-field" value={seedStart} onChange={(e) => setSeedStart(e.target.value)} />
+            </div>
+            <div>
+              <div className="small muted">End date</div>
+              <input type="date" className="input-field" value={seedEnd} onChange={(e) => setSeedEnd(e.target.value)} />
+            </div>
+            <div style={{ minWidth: 220 }}>
+              <div className="small muted">Track</div>
+              <select className="input-field" value={seedTrack} onChange={(e) => setSeedTrack(e.target.value)}>
+                {trackOptions.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="row gap12 wrap" style={{ alignItems: 'flex-start' }}>
+            <div style={{ minWidth: 240 }}>
+              <div className="small muted" style={{ marginBottom: 6 }}>Roles (multi)</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 8 }}>
+                {ROLE_OPTIONS.map((r) => {
+                  const checked = seedRoles.includes(r);
+                  return (
+                    <label key={r} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.12)' }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleSeedRole(r)}
+                      />
+                      <span>{ROLE_LABELS?.[r] ?? r}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                <button type="button" className="btn" onClick={selectAllRoles} style={{ padding: '6px 10px', borderRadius: 8 }}>Select all</button>
+                <button type="button" className="btn" onClick={clearRoles} style={{ padding: '6px 10px', borderRadius: 8 }}>Clear</button>
+              </div>
+              <div className="small muted" style={{ marginTop: 6 }}>Leave empty = all roles.</div>
+            </div>
+
+            <div style={{ minWidth: 220 }}>
+              <div className="small muted" style={{ marginBottom: 6 }}>Frequencies</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 8 }}>
+                {FREQ_OPTIONS.map((f) => {
+                  const checked = seedFreqs.has(f);
+                  return (
+                    <label key={f} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.12)' }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleSeedFreq(f)}
+                      />
+                      <span style={{ textTransform: 'capitalize' }}>{f}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <button
+            className="button-primary"
+            onClick={handleSeedSelected}
+            disabled={seeding}
+            style={{ marginTop: 16, padding: '10px 14px', borderRadius: 10, fontWeight: 700 }}
+          >
+            {seeding ? 'Seeding…' : 'Seed Selected (Range)'}
+          </button>
+
+          {seedResult ? (
+            <div className="small muted" style={{ marginTop: 12 }}>
+              Seeded {seedResult.start} → {seedResult.end} ({seedResult.daysProcessed} day/s). Created {seedResult.createdCount}, Skipped {seedResult.skippedCount}.
+            </div>
+          ) : null}
+        </div>
+
+        {/* Add template */}
+        <form onSubmit={addTemplate} className="glass-card" style={{ padding: 20, marginBottom: 30 }}>
           <h3 style={{ marginTop: 0 }}>Add New Task Template</h3>
 
           <input
@@ -266,10 +417,10 @@ export default function AdminTaskManager() {
             </select>
           </div>
 
-          {/* Weekday picker (optional, useful for weekly frequency) */}
+          {/* Weekday picker (for weekly) */}
           <div style={{ marginTop: 8 }}>
             <div className="small muted" style={{ marginBottom: 6 }}>
-              Select specific weekdays (optional)
+              Select specific weekdays (optional for weekly)
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(92px,1fr))', gap: 8 }}>
               {WEEKDAYS.map((d) => {
@@ -295,7 +446,7 @@ export default function AdminTaskManager() {
               })}
             </div>
             <div className="small muted" style={{ marginTop: 6 }}>
-              Stored as <code>daysOfWeek: ["mon","wed",...]</code>. Seeder respects this.
+              Stored as <code>daysOfWeek: ["mon","wed",...]</code>. If none selected, weekly seeds on Mondays by default.
             </div>
           </div>
 
@@ -304,7 +455,7 @@ export default function AdminTaskManager() {
           </button>
         </form>
 
-        {/* List */}
+        {/* Templates list */}
         <div className="glass-card" style={{ padding: 20 }}>
           <h3 style={{ marginTop: 0 }}>Existing Templates</h3>
           {loading ? (
@@ -334,11 +485,11 @@ export default function AdminTaskManager() {
           )}
         </div>
 
-        {/* Seed result (optional tiny debug) */}
+        {/* Seed result tiny debug */}
         {seedResult ? (
           <div className="glass-card" style={{ padding: 16, marginTop: 12 }}>
             <div className="small muted">
-              Seeded for {seedResult.date}: created {seedResult.createdCount}, skipped {seedResult.skippedCount}.
+              Seeded {seedResult.start} → {seedResult.end} ({seedResult.daysProcessed} day/s). Created {seedResult.createdCount}, Skipped {seedResult.skippedCount}.
             </div>
           </div>
         ) : null}

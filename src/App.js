@@ -114,14 +114,14 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            <Route
-              path="/admin-task-seeder"
-              element={
-                <ProtectedRoute require="admin">
-                  <AdminTaskSeeder />
-                </ProtectedRoute>
-              }
-            />
+          <Route
+  path="/admin-task-seeder"
+  element={
+    <ProtectedRoute isAdmin>
+      <AdminTaskSeeder />
+    </ProtectedRoute>
+  }
+/>
 
             {/* Worker-like */}
             <Route
