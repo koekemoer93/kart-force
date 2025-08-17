@@ -1,7 +1,9 @@
 // src/pages/SupplyRequest.js
-import React, { useEffect, useMemo, useState } from "react";
+// Employees Supply Request — mobile-first, fast search, compact list, sticky chips & footer
+
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import TopNav from "../components/TopNav";
-import { db } from "../firebase";
+import { db, storage } from "../firebase";
 import { useAuth } from "../AuthContext";
 import {
   collection,
@@ -11,11 +13,9 @@ import {
   doc,
   getDoc,
 } from "firebase/firestore";
-import { createSupplyRequest } from "../services/inventory";
-
-// ⬇️ Optional image upload (works if `storage` is exported from ../firebase)
-import { storage } from "../firebase";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { createSupplyRequest } from "../services/inventory";
+import "./SupplyRequest.css";
 
 export default function SupplyRequest() {
   const { user, userData } = useAuth();
@@ -28,14 +28,17 @@ export default function SupplyRequest() {
   const [cart, setCart] = useState({}); // { itemId: { qty, name, unit } }
   const [submitting, setSubmitting] = useState(false);
 
-  // New UI state
+  // UI state
   const [search, setSearch] = useState("");
   const [activeCat, setActiveCat] = useState("All");
   const [note, setNote] = useState("");
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState("");
 
-  // Load human-friendly track name from Firestore
+  // refs for sticky nav offsets & smooth scroll
+  const reviewRef = useRef(null);
+
+  // Load human-friendly track name
   useEffect(() => {
     let alive = true;
     async function fetchTrack() {
@@ -60,7 +63,7 @@ export default function SupplyRequest() {
     };
   }, [assignedTrack]);
 
-  // Load inventory catalog (ordered by name)
+  // Load inventory catalog
   useEffect(() => {
     const invQ = query(collection(db, "inventory"), orderBy("name"));
     const un = onSnapshot(invQ, (snap) => {
@@ -71,18 +74,20 @@ export default function SupplyRequest() {
     return () => un();
   }, []);
 
-  // Categories derived from items (stable + “All” first)
+  // Categories (stable, All first)
   const categories = useMemo(() => {
     const set = new Set();
     items.forEach((it) => set.add(String(it.category || "Uncategorized")));
     return ["All", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
   }, [items]);
 
-  // Filtered + searched items
+  // Filtered + searched
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
     return items
-      .filter((it) => (activeCat === "All" ? true : (it.category || "Uncategorized") === activeCat))
+      .filter((it) =>
+        activeCat === "All" ? true : (it.category || "Uncategorized") === activeCat
+      )
       .filter((it) =>
         s
           ? String(it.name || "").toLowerCase().includes(s) ||
@@ -137,32 +142,30 @@ export default function SupplyRequest() {
 
   // Submit request (adds note + optional photoURL)
   async function submitRequest() {
-    if (!assignedTrack) return alert("You need an assigned track to request stock.");
+    if (!assignedTrack)
+      return alert("You need an assigned track to request stock.");
     if (cartList.length === 0) return alert("Add at least one item.");
 
     setSubmitting(true);
     let photoURL = "";
 
-// Optional upload to Firebase Storage if configured
-if (photoFile && storage) {
-  try {
-    // make a safe filename
-    const ext = (photoFile.name?.split(".").pop() || "jpg").toLowerCase();
-    const safeBase = (photoFile.name || "attachment")
-      .replace(/[^\w.\-]+/g, "_")
-      .slice(0, 48);
-    const path = `supplyRequests/${user?.uid || "anon"}/${Date.now()}-${safeBase}.${ext}`;
+    if (photoFile && storage) {
+      try {
+        const ext = (photoFile.name?.split(".").pop() || "jpg").toLowerCase();
+        const safeBase = (photoFile.name || "attachment")
+          .replace(/[^\w.\-]+/g, "_")
+          .slice(0, 48);
+        const path = `supplyRequests/${user?.uid || "anon"}/${Date.now()}-${safeBase}.${ext}`;
 
-    const r = storageRef(storage, path);
-    // 👇 include contentType to keep CORS preflight simple
-    await uploadBytes(r, photoFile, {
-      contentType: photoFile.type || "image/jpeg",
-    });
-    photoURL = await getDownloadURL(r);
-  } catch (e) {
-    console.warn("Photo upload failed; continuing without attachment.", e);
-  }
-}
+        const r = storageRef(storage, path);
+        await uploadBytes(r, photoFile, {
+          contentType: photoFile.type || "image/jpeg",
+        });
+        photoURL = await getDownloadURL(r);
+      } catch (e) {
+        console.warn("Photo upload failed; continuing without attachment.", e);
+      }
+    }
 
     try {
       await createSupplyRequest({
@@ -177,6 +180,8 @@ if (photoFile && storage) {
       setPhotoFile(null);
       setPhotoPreview("");
       alert("Request submitted!");
+      // optional: scroll back to top
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
       console.error(err);
       alert(err.message || "Failed to submit request.");
@@ -185,257 +190,355 @@ if (photoFile && storage) {
     }
   }
 
+  function scrollToReview() {
+    reviewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   return (
     <>
       <TopNav />
-      <div className="main-wrapper" style={{ padding: 16, display: "flex", justifyContent: "center" }}>
-        <div style={{ width: "100%", maxWidth: 1100, display: "grid", gap: 12 }}>
-          {/* Header / Controls */}
-          <div className="glass-card" style={{ padding: 14 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-              <h3 style={{ margin: 0 }}>Request Stock — {trackName}</h3>
-              <div className="small muted">You can only request up to the available central stock.</div>
-            </div>
-
-            {/* Search + Category chips (mobile-first) */}
-            <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
-              <input
-                className="input-field"
-                placeholder="Search items..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                aria-label="Search items"
-              />
-
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {categories.map((cat) => {
-                  const active = cat === activeCat;
-                  return (
-                    <button
-                      key={cat}
-                      type="button"
-                      onClick={() => setActiveCat(cat)}
-                      className="weekday-chip"
-                      aria-pressed={active}
-                      style={{
-                        padding: "6px 10px",
-                        borderRadius: 999,
-                        border: "1px solid rgba(255,255,255,0.12)",
-                        background: active ? "rgba(36,255,152,0.18)" : "rgba(255,255,255,0.04)",
-                        fontWeight: 600,
-                        fontSize: 13,
-                      }}
-                    >
-                      {cat}
-                    </button>
-                  );
-                })}
-              </div>
+      <div className="srq-wrap">
+        {/* Sticky search & category chips */}
+        <div className="srq-toolbar card">
+          <div className="srq-head">
+            <h3 className="srq-title">Request Stock — {trackName}</h3>
+            <div className="tiny muted">
+              You can only request up to the available central stock.
             </div>
           </div>
 
-          {/* Catalog grid */}
-          <div className="glass-card" style={{ padding: 12 }}>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))",
-                gap: 10,
-              }}
-            >
-              {filtered.map((it) => {
-                const selectedQty = cart[it.id]?.qty ?? 0;
-                const max = it.qty || 0;
-                return (
-                  <div key={it.id} className="track-card">
-                    <div className="card track" style={{ padding: 12 }}>
-                      <div className="row between wrap gap12">
-                        <h4 className="track-name" style={{ margin: 0 }}>{it.name}</h4>
-                        <span className="small muted">
-                          On hand: {max} {it.unit}
-                        </span>
-                      </div>
+          <input
+            className="input srq-search"
+            placeholder="Search items, units…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search items"
+          />
 
-                      {/* Stepper + input (mobile friendly) */}
-                      <div className="row gap12" style={{ marginTop: 10, alignItems: "center", flexWrap: "nowrap" }}>
-                        <button
-                          type="button"
-                          onClick={() => step(it, -1)}
-                          aria-label={`Decrease ${it.name}`}
-                          style={{
-                            width: 36,
-                            height: 36,
-                            borderRadius: 10,
-                            border: "1px solid rgba(255,255,255,0.15)",
-                            background: "rgba(255,255,255,0.06)",
-                            fontWeight: 800,
-                          }}
-                          disabled={selectedQty <= 0}
-                        >
-                          −
-                        </button>
+          <div className="srq-chips" role="tablist" aria-label="Categories">
+            {categories.map((cat) => {
+              const active = cat === activeCat;
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setActiveCat(cat)}
+                  role="tab"
+                  aria-pressed={active}
+                  className={`chip ${active ? "is-active" : ""}`}
+                >
+                  {cat}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
-                        <input
-                          className="input-field"
-                          type="number"
-                          min="0"
-                          inputMode="numeric"
-                          placeholder={`Qty (${it.unit})`}
-                          value={selectedQty || ""}
-                          onChange={(e) => setQty(it, e.target.value)}
-                          style={{ width: 110, textAlign: "center" }}
-                        />
-
-                        <button
-                          type="button"
-                          onClick={() => step(it, 1)}
-                          aria-label={`Increase ${it.name}`}
-                          style={{
-                            width: 36,
-                            height: 36,
-                            borderRadius: 10,
-                            border: "1px solid rgba(255,255,255,0.15)",
-                            background: "rgba(255,255,255,0.06)",
-                            fontWeight: 800,
-                          }}
-                          disabled={selectedQty >= max}
-                        >
-                          +
-                        </button>
-
-                        {selectedQty > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => removeFromCart(it.id)}
-                            className="small"
-                            style={{
-                              marginLeft: "auto",
-                              opacity: 0.9,
-                              border: "1px solid rgba(255,255,255,0.12)",
-                              background: "rgba(255,255,255,0.03)",
-                              padding: "6px 10px",
-                              borderRadius: 8,
-                            }}
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
+        {/* Catalog — compact list */}
+        <section className="card">
+          <div className="srq-list">
+            {filtered.map((it) => {
+              const selectedQty = cart[it.id]?.qty ?? 0;
+              const max = it.qty || 0;
+              const isDisabledPlus = selectedQty >= max;
+              return (
+                <div key={it.id} className="srq-item">
+                  <div className="srq-item-main">
+                    <div className="srq-item-title">{it.name}</div>
+                    <div className="tiny muted">
+                      On hand: {max} {it.unit}
                     </div>
                   </div>
-                );
-              })}
-            </div>
+
+                  <div className="srq-stepper">
+                    <button
+                      type="button"
+                      onClick={() => step(it, -1)}
+                      aria-label={`Decrease ${it.name}`}
+                      className="step"
+                      disabled={selectedQty <= 0}
+                    >
+                      −
+                    </button>
+
+                    <input
+                      className="input srq-qty"
+                      type="number"
+                      min="0"
+                      inputMode="numeric"
+                      placeholder={`Qty (${it.unit})`}
+                      value={selectedQty || ""}
+                      onChange={(e) => setQty(it, e.target.value)}
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => step(it, 1)}
+                      aria-label={`Increase ${it.name}`}
+                      className="step"
+                      disabled={isDisabledPlus}
+                    >
+                      +
+                    </button>
+
+                    {selectedQty > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => removeFromCart(it.id)}
+                        className="chip ghost"
+                        title="Remove from request"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
 
             {filtered.length === 0 && (
-              <div className="small muted" style={{ padding: 12 }}>
+              <div className="small muted" style={{ padding: 8 }}>
                 No items match your filters.
               </div>
             )}
           </div>
+        </section>
 
-          {/* Review & Submit (note + photo) */}
-          <div className="glass-card" style={{ padding: 14 }}>
-            <h4 style={{ marginTop: 0, marginBottom: 8 }}>Review & Submit</h4>
+        {/* Review & Submit */}
+        <section className="card" ref={reviewRef}>
+          <div className="card-h">Review & Submit</div>
 
-            <div className="small muted" style={{ marginBottom: 8 }}>
-              Items in request: <strong>{cartList.length}</strong>
-            </div>
+          <div className="small muted" style={{ marginBottom: 8 }}>
+            Items in request: <strong>{cartList.length}</strong>
+          </div>
 
-            {cartList.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <div className="small" style={{ opacity: 0.85, marginBottom: 6 }}>Selected</div>
-                <div style={{ display: "grid", gap: 6 }}>
-                  {cartList.map((line) => (
-                    <div
-                      key={line.itemId}
-                      className="small"
-                      style={{
-                        display: "flex",
-                        gap: 8,
-                        justifyContent: "space-between",
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        borderRadius: 10,
-                        padding: "6px 10px",
-                        background: "rgba(255,255,255,0.03)",
-                      }}
-                    >
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {line.name}
-                      </span>
-                      <span>
-                        {line.qty} {line.unit}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+          {cartList.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div className="small" style={{ opacity: 0.85, marginBottom: 6 }}>
+                Selected
               </div>
-            )}
+              <div className="srq-selected">
+                {cartList.map((line) => (
+                  <div key={line.itemId} className="srq-selected-row">
+                    <span className="srq-selected-name">{line.name}</span>
+                    <span>
+                      {line.qty} {line.unit}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
-            {/* Note + optional photo */}
-            <div className="row gap12 wrap" style={{ alignItems: "flex-start" }}>
-              <textarea
-                className="input-field"
-                placeholder="Add a note (optional)"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                style={{ minHeight: 72, flex: "1 1 260px" }}
+          <div className="srq-note">
+            <textarea
+              className="input"
+              placeholder="Add a note (optional)"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              style={{ minHeight: 72 }}
+            />
+            <div className="srq-photo">
+              <label className="tiny muted" htmlFor="photoInput">
+                Optional photo
+              </label>
+              <input
+                id="photoInput"
+                type="file"
+                accept="image/*"
+                onChange={(e) => setPhotoFile(e.target.files?.[0] || null)}
               />
-              <div style={{ display: "grid", gap: 6 }}>
-                <label className="small" htmlFor="photoInput" style={{ opacity: 0.85 }}>
-                  Optional photo
-                </label>
-                <input
-                  id="photoInput"
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setPhotoFile(e.target.files?.[0] || null)}
+              {photoPreview && (
+                <img
+                  src={photoPreview}
+                  alt="attachment preview"
+                  className="srq-preview"
                 />
-                {photoPreview && (
-                  <img
-                    src={photoPreview}
-                    alt="attachment preview"
-                    style={{
-                      width: 140,
-                      height: 100,
-                      objectFit: "cover",
-                      borderRadius: 10,
-                      border: "1px solid rgba(255,255,255,0.1)",
-                    }}
-                  />
-                )}
-              </div>
-            </div>
-
-            <div className="row between" style={{ marginTop: 14 }}>
-              <button
-                type="button"
-                className="button-secondary"
-                onClick={() => {
-                  setCart({});
-                  setNote("");
-                  setPhotoFile(null);
-                  setPhotoPreview("");
-                }}
-                disabled={submitting || (cartList.length === 0 && !note && !photoFile)}
-              >
-                Clear
-              </button>
-
-              <button
-                className="button-primary"
-                onClick={submitRequest}
-                disabled={submitting}
-              >
-                {submitting ? "Submitting…" : "Submit Request"}
-              </button>
+              )}
             </div>
           </div>
 
-          {/* Bottom spacer for mobile safe area */}
-          <div style={{ height: 12 }} />
+          <div className="srq-actions">
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => {
+                setCart({});
+                setNote("");
+                setPhotoFile(null);
+                setPhotoPreview("");
+              }}
+              disabled={submitting || (cartList.length === 0 && !note && !photoFile)}
+            >
+              Clear
+            </button>
+
+            <button className="btn primary" onClick={submitRequest} disabled={submitting}>
+              {submitting ? "Submitting…" : "Submit Request"}
+            </button>
+          </div>
+        </section>
+
+        {/* Sticky footer mini-summary (mobile & desktop) */}
+        <div className="srq-footer">
+          <div className="srq-footer-left">
+            <div className="tiny muted">In cart</div>
+            <div className="footer-count">{cartList.length}</div>
+          </div>
+          <button className="btn primary footer-btn" onClick={scrollToReview}>
+            Review
+          </button>
         </div>
       </div>
-    </>
+      </>
   );
 }
+
+<style>{String.raw`
+  :root { --border:#2a2d31; --muted:#a4a6ab; --glass:#15171a; }
+
+  .srq-wrap{
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 10px;
+    display: grid;
+    gap: 10px;
+  }
+
+  .card{
+    background:#17181a;
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:10px;
+  }
+  .card-h{ font-weight:700; margin-bottom:8px; }
+  .tiny{ font-size:12px; } .muted{ color:var(--muted); }
+
+  /* Sticky search + chips */
+  .srq-toolbar{
+    position: sticky;
+    top: calc(var(--nav-h,56px) + 6px);
+    z-index: 3;
+    background: var(--glass);
+  }
+  .srq-head{ display:flex; flex-direction:column; gap:4px; margin-bottom:6px; }
+  .srq-title{ margin:0; }
+  .srq-search{ width:100%; margin:0; }
+  .srq-chips{
+    display:flex; gap:6px; margin-top:6px; overflow-x:auto; padding-bottom:2px;
+    scrollbar-width: none;
+  }
+  .srq-chips::-webkit-scrollbar{ display:none; }
+
+  .input{
+    background:#111216; border:1px solid var(--border);
+    border-radius:10px; padding:9px 10px; color:#fff; width:100%;
+    box-sizing:border-box;
+  }
+  .chip{
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.10);
+    color:#e7e7e7;
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .chip.is-active{
+    color:#24ff98;
+    border-color:#24ff98;
+    background: rgba(36,255,152,0.06);
+  }
+  .chip.ghost{ background:#171a1f; color:#cfd1d6; }
+
+  /* ===== Catalog list (authoritative, non-wrapping) ===== */
+  .srq-list{ display:flex; flex-direction:column; gap:8px; }
+  .srq-item{
+    display:grid;
+    grid-template-columns: 1fr;     /* one column everywhere */
+    gap:8px;
+    align-items:center;
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:10px;
+    background:#101216;
+  }
+  .srq-item-main{ min-width:0; }
+  .srq-item-title{ font-weight:700; margin-bottom:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  /* Stepper: ALWAYS a 3-cell grid: [-] [Qty] [+] */
+  .srq-stepper{
+    display:grid !important;               /* override any global flex rules */
+    grid-template-columns: 48px 1fr 48px;  /* never wraps */
+    align-items:center;
+    gap:8px;
+    min-width:0;
+  }
+  .srq-qty{
+    min-width:0;
+    width:100%;
+    text-align:center;
+  }
+  .step{
+    width:48px; height:48px; border-radius:10px; font-weight:800;
+    border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06);
+    cursor:pointer; color:#fff;
+  }
+  .step:disabled{ opacity:0.5; cursor:not-allowed; }
+
+  /* "Remove" chip drops below, full row */
+  .srq-stepper .chip{
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+
+  /* Selected list */
+  .srq-selected{ display:grid; gap:6px; }
+  .srq-selected-row{
+    display:flex; justify-content:space-between; align-items:center;
+    border:1px solid rgba(255,255,255,0.08);
+    background:rgba(255,255,255,0.03);
+    padding:6px 10px; border-radius:10px;
+  }
+  .srq-selected-name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  /* Note + photo */
+  .srq-note{ display:grid; grid-template-columns: 1fr auto; gap:8px; align-items:start; }
+  .srq-photo{ display:grid; gap:6px; width:160px; }
+  .srq-preview{
+    width: 160px; height: 110px; object-fit: cover;
+    border-radius:10px; border:1px solid rgba(255,255,255,0.1);
+  }
+
+  /* Actions */
+  .srq-actions{ display:flex; justify-content:space-between; gap:8px; margin-top:10px; }
+  .btn{
+    padding:10px 12px; border-radius:10px; border:1px solid var(--border);
+    background:#191b20; color:#e7e8ea; cursor:pointer;
+  }
+  .btn.primary{ background:#1c3a31; color:#c0f3e7; border-color:#2b564a; }
+  .btn.ghost{ background:#121419; color:#c9cace; }
+  .btn:disabled{ opacity:0.6; cursor:not-allowed; }
+
+  /* Sticky footer mini-summary */
+  .srq-footer{
+    position: sticky; bottom: 8px;
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+    background: rgba(16,18,22,0.92); backdrop-filter: blur(6px);
+    border:1px solid var(--border); border-radius:12px; padding:8px 10px;
+  }
+  .srq-footer-left{ display:flex; align-items:center; gap:8px; }
+  .footer-count{
+    min-width:28px; text-align:center; border:1px solid var(--border);
+    border-radius:999px; padding:2px 8px; background:#1a2226;
+  }
+  .footer-btn{ min-width:120px; }
+
+  /* Form stacks on small screens */
+  @media (max-width: 720px){
+    .srq-note{ grid-template-columns: 1fr; }
+    .srq-photo{ width:100%; }
+    .srq-preview{ width:100%; height:160px; }
+  }
+`}</style>

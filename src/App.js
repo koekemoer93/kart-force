@@ -84,6 +84,17 @@ function App() {
                 </ProtectedRoute>
               }
             />
+
+            <Route
+  path="/worker-dashboard"
+  element={
+    <ProtectedRoute isWorkerLike>
+      <GeofenceGate /* no prop needed now; it will use profile.assignedTrack automatically */>
+        <WorkerDashboard />
+      </GeofenceGate>
+    </ProtectedRoute>
+  }
+/>
             <Route
               path="/admin-task-manager"
               element={

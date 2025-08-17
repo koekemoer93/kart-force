@@ -824,7 +824,7 @@ body:has(.kf-splash) {
   min-height: unset; /* remove tall default */
 }
 
-/* === Mobile Optimizations (v0.1.4) === */
+/* === Mobile Optimizations (v0.1.4) — fixed === */
 @media (max-width: 768px) {
   /* Reduce card size */
   .glass-card {
@@ -842,7 +842,7 @@ body:has(.kf-splash) {
     padding: 10px;
   }
 
-  /* Reduce top spacing on mobile */
+  /* Reduce page padding on mobile */
   .main-wrapper {
     padding: 10px;
     gap: 12px;
@@ -853,10 +853,10 @@ body:has(.kf-splash) {
     font-size: clamp(1rem, 4vw, 1.4rem);
   }
 
-  /* Buttons full-width and taller for touch */
+  /* Buttons full-width and taller for touch — only main button classes */
   .button-primary,
   .button-secondary,
-  button {
+  .btn-toggle {
     width: 100%;
     min-height: 44px;
     font-size: 1rem;
@@ -869,17 +869,74 @@ body:has(.kf-splash) {
     padding: 10px 12px;
   }
 
-  /* Progress bars full width */
-  .track-progress {
-    height: 10px;
-  }
-
   /* TopNav tighten space */
   .top-nav {
     padding: 6px 10px;
     gap: 6px;
   }
-  .nav-buttons {
-    gap: 6px;
+  .nav-buttons { gap: 6px; }
+}
+
+/* === Responsive Spacing Layer (authoritative but additive) === */
+/* Tokens you can tweak later */
+:root {
+  --space-page-x: clamp(12px, 4vw, 24px);
+  --space-page-y: clamp(10px, 3vh, 24px);
+  --space-gap: clamp(8px, 2.2vw, 16px);
+
+  --space-card-px: clamp(12px, 3.8vw, 22px);
+  --space-card-py: clamp(12px, 3.8vw, 22px);
+}
+
+/* Make ALL pages use the same responsive padding & gap */
+.main-wrapper {
+  padding: var(--space-page-y) var(--space-page-x) !important;
+  gap: var(--space-gap) !important;
+  width: min(var(--page-max, 1200px), 100%);
+  margin: 0 auto;
+  min-height: min(100vh, 100dvh); /* better mobile vh handling */
+}
+
+/* Respect notches on iOS (safe areas) */
+@supports (padding: max(0px)) {
+  .main-wrapper {
+    padding-left: max(var(--space-page-x), env(safe-area-inset-left));
+    padding-right: max(var(--space-page-x), env(safe-area-inset-right));
+    padding-top: max(var(--space-page-y), env(safe-area-inset-top));
+    padding-bottom: max(var(--space-page-y), env(safe-area-inset-bottom));
   }
 }
+
+/* Normalize gaps for your common grids */
+.admin-dashboard-layout,
+.worker-dashboard-layout,
+.grid.tracks-grid {
+  gap: var(--space-gap) !important;
+}
+
+/* Standardize card padding without changing your look */
+.glass-card,
+.card {
+  padding: var(--space-card-py) var(--space-card-px) !important;
+}
+
+/* Optional modifiers — per page density control (no extra CSS needed) */
+.main-wrapper.is-tight {
+  --space-page-x: clamp(10px, 3vw, 18px);
+  --space-page-y: clamp(8px, 2.4vh, 18px);
+  --space-gap: clamp(6px, 1.8vw, 12px);
+  --space-card-px: clamp(10px, 3vw, 18px);
+  --space-card-py: clamp(10px, 3vw, 18px);
+}
+.main-wrapper.is-loose {
+  --space-page-x: clamp(16px, 5vw, 36px);
+  --space-page-y: clamp(14px, 4vh, 36px);
+  --space-gap: clamp(10px, 3vw, 24px);
+  --space-card-px: clamp(16px, 4.5vw, 32px);
+  --space-card-py: clamp(16px, 4.5vw, 32px);
+}
+
+/* Ensure nothing bleeds off-screen on mobile */
+* { box-sizing: border-box; }
+html, body { overflow-x: hidden; }
+

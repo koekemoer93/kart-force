@@ -534,7 +534,7 @@ export default function AdminDashboard() {
                         <div className="row gap12 center">
                           <span className={`dot ${openClass}`} />
                           <div className="row gap8 center">
-                            <h4 className="track-name" style={{ margin: 0 }}>{t?.displayName || id}</h4>
+                            <h4 className="track-name" style={{ margin: 0 }}>{t?.displayName}</h4>
                             <span
                               className="duty-badge"
                               title="Clocked-in staff"

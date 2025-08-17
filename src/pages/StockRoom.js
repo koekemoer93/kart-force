@@ -1,885 +1,414 @@
 // src/pages/StockRoom.js
-import React, { useEffect, useMemo, useState } from 'react';
+// Stock Room — clean layout: Requests → Quick actions → Inventory (collapsible categories)
+
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import TopNav from '../components/TopNav';
-import StockProgress from '../components/StockProgress'; // kept import (no removals)
 import { db } from '../firebase';
 import { useAuth } from '../AuthContext';
 import {
-  collection,
-  onSnapshot,
-  orderBy,
-  query,
-  doc,
-  runTransaction,
-  serverTimestamp,
+  collection, onSnapshot, orderBy, query, doc, runTransaction, serverTimestamp,
 } from 'firebase/firestore';
 import { createItem, receiveStock, issueStock } from '../services/inventory';
-import { isAdmin, isWorkerLike } from '../utils/roles';
+import { isAdmin } from '../utils/roles';
 
-function fmtDateTime(v) {
-  try {
-    const d = v?.toDate ? v.toDate() : new Date(v);
-    return new Intl.DateTimeFormat(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(d);
-  } catch {
-    return String(v || '');
-  }
-}
+const clamp = (n, min = 0, max = 100) => Math.max(min, Math.min(max, n));
+function fmtDateTime(v){ try{ const d=v?.toDate?v.toDate():new Date(v);
+  return new Intl.DateTimeFormat(undefined,{year:'numeric',month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit'}).format(d);
+} catch{ return String(v||'');}}
+function timeAgo(ts){ try{ const d=ts?.toDate?ts.toDate():new Date(ts);
+  const mins=Math.max(0,Math.floor((Date.now()-d.getTime())/60000));
+  if(mins<60)return`${mins}m`;const hrs=Math.floor(mins/60);if(hrs<24)return`${hrs}h`;
+  return`${Math.floor(hrs/24)}d`;
+}catch{return'';}}
 
-// Small inline pill buttons for +/- quick adjust
-function QtyNudger({ onNudge }) {
-  const Btn = ({ label, delta }) => (
-    <button
-      type="button"
-      className="button-secondary"
-      onClick={() => onNudge(delta)}
-      style={{ padding: '4px 8px', borderRadius: 8, fontSize: 12 }}
-    >
-      {label}
-    </button>
-  );
-  return (
-    <div className="row gap8" style={{ alignItems: 'center' }}>
-      <Btn label="−1" delta={-1} />
-      <Btn label="+1" delta={+1} />
-      <Btn label="+10" delta={+10} />
-    </div>
-  );
-}
+export default function StockRoom(){
+  const { user, profile, role:ctxRole } = useAuth();
+  const role = ctxRole || profile?.role || '';
+  const admin = isAdmin(role);
 
-export default function StockRoom() {
-  const { user, profile, role: ctxRole } = useAuth();
-  const effectiveRole = ctxRole || profile?.role || '';
-  const admin = isAdmin(effectiveRole);
-  const workerLike = isWorkerLike(effectiveRole); // reserved for future UI gates
+  const [items,setItems]=useState([]);
+  const [reqs,setReqs]=useState([]);
+  const [selectedReq,setSelectedReq]=useState(null);
+  const [lastTs,setLastTs]=useState(null);
 
-  const [items, setItems] = useState([]);
-  const [reqs, setReqs] = useState([]);
-  const [selectedReq, setSelectedReq] = useState(null); // details modal
+  const [search,setSearch]=useState(()=>localStorage.getItem('sr.q')||'');
+  const [lowOnly,setLowOnly]=useState(()=>localStorage.getItem('sr.low')==='1');
+  const [sortBy,setSortBy]=useState(()=>localStorage.getItem('sr.sortBy')||'minGap');
+  const searchRef=useRef(null);
 
-  // forms
-  const [newItem, setNewItem] = useState({
-    name: '',
-    unit: 'pcs',
-    category: 'essentials',
-    minQty: 0,
-    maxQty: 0,
-    initialQty: 0,
-  });
+  const [receive,setReceive]=useState({ itemId:'', qty:0, reason:'receive' });
+  const [issue,setIssue]=useState({ itemId:'', qty:0, reason:'issue' });
+  const [newItem,setNewItem]=useState({ name:'', unit:'pcs', minQty:0, maxQty:0, initialQty:0 });
 
-  const [receive, setReceive] = useState({ itemId: '', qty: 0, reason: 'receive' });
-  const [issue, setIssue] = useState({ itemId: '', qty: 0, reason: 'issue' }); // NEW: manual issue
+  useEffect(()=>localStorage.setItem('sr.q',search),[search]);
+  useEffect(()=>localStorage.setItem('sr.low',lowOnly?'1':'0'),[lowOnly]);
+  useEffect(()=>localStorage.setItem('sr.sortBy',sortBy),[sortBy]);
 
-  // filters/sort
-  const [categoryFilter, setCategoryFilter] = useState('all');
-  const [search, setSearch] = useState('');
-  const [sortBy, setSortBy] = useState('name');
-  const [sortDir, setSortDir] = useState('asc');
-  const [showLowStockOnly, setShowLowStockOnly] = useState(false);
-
-  // view controls (forced list)
-  const [density, setDensity] = useState('cozy');
-  const [viewMode, setViewMode] = useState('list');
-  useEffect(() => {
-    if (viewMode !== 'list') setViewMode('list');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Live inventory + requests
-  useEffect(() => {
-    const invQ = query(collection(db, 'inventory'), orderBy('name'));
-    const un1 = onSnapshot(invQ, (snap) => {
-      const arr = [];
-      snap.forEach((d) => arr.push({ id: d.id, ...d.data() }));
-      setItems(arr);
-    });
-
-    const reqQ = query(collection(db, 'supplyRequests'), orderBy('createdAt'));
-    const un2 = onSnapshot(reqQ, (snap) => {
-      const arr = [];
-      snap.forEach((d) => arr.push({ id: d.id, ...d.data() }));
-      setReqs(arr.reverse()); // newest first
-    });
-
-    return () => {
-      un1();
-      un2();
+  useEffect(()=>{
+    const onKey=(e)=>{ const tag=String(e.target?.tagName||'').toUpperCase();
+      if(tag==='INPUT'||tag==='TEXTAREA')return;
+      if(e.key==='/'){ e.preventDefault(); searchRef.current?.focus(); }
+      if(e.key.toLowerCase()==='e') exportVisibleAsCSV();
     };
-  }, []);
+    window.addEventListener('keydown',onKey);
+    return()=>window.removeEventListener('keydown',onKey);
+  },[]);
 
-  const pendingReqs = useMemo(() => reqs.filter((r) => (r.status || 'pending') === 'pending'), [reqs]);
-  const approvedReqs = useMemo(() => reqs.filter((r) => r.status === 'approved'), [reqs]);
+  useEffect(()=>{
+    const un1=onSnapshot(query(collection(db,'inventory'),orderBy('name')),(snap)=>{
+      const arr=[]; snap.forEach(d=>arr.push({id:d.id,...d.data()})); setItems(arr); setLastTs(new Date());
+    });
+    const un2=onSnapshot(query(collection(db,'supplyRequests'),orderBy('createdAt')),(snap)=>{
+      const arr=[]; snap.forEach(d=>arr.push({id:d.id,...d.data()})); setReqs(arr.reverse()); setLastTs(new Date());
+    });
+    return()=>{ un1(); un2(); };
+  },[]);
 
-  const itemsById = useMemo(() => {
-    const map = new Map();
-    items.forEach((it) => map.set(it.id, it));
-    return map;
-  }, [items]);
+  const byNameLower=useMemo(()=>{ const m=new Map(); items.forEach(it=>m.set(String(it.name||'').toLowerCase(),it)); return m;},[items]);
+  const byId=useMemo(()=>{ const m=new Map(); items.forEach(it=>m.set(it.id,it)); return m;},[items]);
 
-  const itemsByNameLower = useMemo(() => {
-    const map = new Map();
-    items.forEach((it) => map.set(String(it.name || '').toLowerCase(), it));
-    return map;
-  }, [items]);
+  const pending=useMemo(()=>reqs.filter(r=>(r.status||'pending')==='pending'),[reqs]);
+  const approved=useMemo(()=>reqs.filter(r=>r.status==='approved'),[reqs]);
 
-  // category options + counts
-  const categoryCounts = useMemo(() => {
-    const counts = {};
-    for (const it of items) {
-      const cat = (it.category || 'uncategorised').toLowerCase();
-      counts[cat] = (counts[cat] || 0) + 1;
-    }
-    return counts;
-  }, [items]);
-
-  const categoryOptions = useMemo(() => {
-    const keys = Object.keys(categoryCounts).sort();
-    return ['all', ...keys];
-  }, [categoryCounts]);
-
-  // visible list after filter/search/sort
-  const visibleItems = useMemo(() => {
-    const s = search.trim().toLowerCase();
-    let arr = items.slice();
-
-    if (categoryFilter !== 'all') {
-      arr = arr.filter(
-        (it) => String(it.category || '').toLowerCase() === categoryFilter.toLowerCase()
-      );
-    }
-
-    if (s) {
-      arr = arr.filter((it) => {
-        const hay = [it.name, it.category, it.unit].filter(Boolean).join(' ').toLowerCase();
-        return hay.includes(s);
-      });
-    }
-
-    if (showLowStockOnly) {
-      arr = arr.filter((it) => Number(it.qty || 0) <= Number(it.minQty || 0));
-    }
-
-    const dir = sortDir === 'desc' ? -1 : 1;
-    arr.sort((a, b) => {
-      const av =
-        sortBy === 'name' || sortBy === 'category'
-          ? String(a[sortBy] || '').toLowerCase()
-          : Number(a[sortBy] || 0);
-      const bv =
-        sortBy === 'name' || sortBy === 'category'
-          ? String(b[sortBy] || '').toLowerCase()
-          : Number(b[sortBy] || 0);
-
-      if (av < bv) return -1 * dir;
-      if (av > bv) return 1 * dir;
-      // secondary sort by name to keep stable order
-      const an = String(a.name || '').toLowerCase();
-      const bn = String(b.name || '').toLowerCase();
-      if (an < bn) return -1;
-      if (an > bn) return 1;
+  const visible=useMemo(()=>{
+    const q=search.trim().toLowerCase();
+    let arr=items.slice();
+    if(lowOnly) arr=arr.filter(it=>(+it.qty||0) <= (+it.minQty||0));
+    if(q) arr=arr.filter(it=>`${it.name} ${it.unit||''} ${it.category||''}`.toLowerCase().includes(q));
+    arr.sort((a,b)=>{
+      const qa=+a.qty||0, qb=+b.qty||0;
+      if(sortBy==='qtyAsc') return qa-qb;
+      if(sortBy==='qtyDesc') return qb-qa;
+      if(sortBy==='name') return String(a.name||'').localeCompare(String(b.name||''));
+      if(sortBy==='minGap'){ const ga=qa-(+a.minQty||0), gb=qb-(+b.minQty||0); return ga-gb; }
       return 0;
     });
-
     return arr;
-  }, [items, categoryFilter, search, sortBy, sortDir, showLowStockOnly]);
+  },[items,search,lowOnly,sortBy]);
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Forms
-  // ─────────────────────────────────────────────────────────────────────────────
-  async function handleCreateItem(e) {
-    e.preventDefault();
-    if (!admin) return alert('Admin only.');
-    try {
-      const payload = {
-        name: newItem.name.trim(),
-        unit: newItem.unit.trim(),
-        category: newItem.category,
-        minQty: Number(newItem.minQty) || 0,
-        maxQty: Number(newItem.maxQty) || 0,
-        initialQty: Number(newItem.initialQty) || 0,
-      };
-      if (!payload.name) return alert('Item name required.');
-      await createItem(payload);
-      setNewItem({
-        name: '',
-        unit: 'pcs',
-        category: 'essentials',
-        minQty: 0,
-        maxQty: 0,
-        initialQty: 0,
-      });
-    } catch (err) {
-      console.error(err);
-      alert(err.message);
-    }
-  }
-
-  async function handleReceive(e) {
-    e.preventDefault();
-    if (!admin) return alert('Admin only.');
-    try {
-      if (!receive.itemId) return alert('Select item');
-      const qty = Number(receive.qty);
-      if (!qty || qty <= 0) return alert('Enter quantity > 0');
-      await receiveStock({ itemId: receive.itemId, qty, reason: receive.reason, byUid: user?.uid });
-      setReceive({ itemId: '', qty: 0, reason: 'receive' });
-    } catch (err) {
-      console.error(err);
-      alert(err.message);
-    }
-  }
-
-  async function handleIssue(e) {
-    e.preventDefault();
-    if (!admin) return alert('Admin only.');
-    try {
-      if (!issue.itemId) return alert('Select item');
-      const qty = Number(issue.qty);
-      if (!qty || qty <= 0) return alert('Enter quantity > 0');
-      await issueStock({ itemId: issue.itemId, qty, reason: issue.reason, byUid: user?.uid });
-      setIssue({ itemId: '', qty: 0, reason: 'issue' });
-    } catch (err) {
-      console.error(err);
-      alert(err.message);
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Reservation Workflow
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  // Helper to resolve items list -> concrete inventory doc refs and enforce availability
-  async function txResolveAndReserve(tx, request, itemsByIdLocal, itemsByNameMap) {
-    const itemsInReq = Array.isArray(request.items) ? request.items : [];
-    if (itemsInReq.length === 0) throw new Error('Request has no items.');
-
-    // Resolve inventory docs
-    const resolved = itemsInReq.map((it) => {
-      const qty = Number(it.qty || 0);
-      if (!qty || qty <= 0) return null;
-
-      let invDocId = it.itemId;
-      if (!invDocId && it.name) {
-        const found = itemsByNameMap.get(String(it.name).toLowerCase());
-        if (found) invDocId = found.id;
-      }
-      if (!invDocId) {
-        throw new Error(`Cannot resolve inventory item for "${it.name || 'unknown'}".`);
-      }
-      const inv = itemsByIdLocal.get(invDocId);
-      return {
-        itemId: invDocId,
-        name: it.name || inv?.name || invDocId,
-        unit: it.unit || inv?.unit || '',
-        qty,
-        ref: doc(db, 'inventory', invDocId),
-      };
-    }).filter(Boolean);
-
-    // Pull snapshots for availability check
-    const snaps = [];
-    for (const r of resolved) snaps.push(await tx.get(r.ref));
-
-    // Check available (qty - reservedQty)
-    resolved.forEach((r, i) => {
-      const d = snaps[i].data();
-      const onHand = Number(d?.qty ?? 0);
-      const reserved = Number(d?.reservedQty ?? 0);
-      const available = onHand - reserved;
-      if (available < r.qty) {
-        throw new Error(
-          `${r.name}: need ${r.qty} ${r.unit || ''}, only ${available} available (on hand ${onHand}, reserved ${reserved}).`
-        );
-      }
+  const grouped = useMemo(()=>{
+    const m = new Map();
+    visible.forEach(it=>{
+      const c = String(it.category || 'General');
+      if(!m.has(c)) m.set(c, []);
+      m.get(c).push(it);
     });
+    return Array.from(m.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
+  },[visible]);
 
+  const lastUpdated = lastTs ? `Live • ${fmtDateTime(lastTs)}` : 'Live';
+
+  async function handleCreateItem(e){ e.preventDefault();
+    if(!admin) return alert('Admin only.');
+    try{
+      const payload={ name:String(newItem.name||'').trim(), unit:String(newItem.unit||'pcs').trim(),
+        category:'general', minQty:+newItem.minQty||0, maxQty:+newItem.maxQty||0, initialQty:+newItem.initialQty||0 };
+      if(!payload.name) return alert('Item name required.');
+      await createItem(payload);
+      setNewItem({ name:'', unit:'pcs', minQty:0, maxQty:0, initialQty:0 });
+    }catch(err){ console.error(err); alert(err.message); }
+  }
+  async function handleReceive(e){ e.preventDefault();
+    if(!admin) return alert('Admin only.');
+    try{
+      if(!receive.itemId) return alert('Select item');
+      const qty=+receive.qty; if(!qty||qty<=0) return alert('Enter quantity > 0');
+      await receiveStock({ itemId:receive.itemId, qty, reason:receive.reason, byUid:user?.uid });
+      setReceive({ itemId:'', qty:0, reason:'receive' });
+    }catch(err){ console.error(err); alert(err.message); }
+  }
+  async function handleIssue(e){ e.preventDefault();
+    if(!admin) return alert('Admin only.');
+    try{
+      if(!issue.itemId) return alert('Select item');
+      const qty=+issue.qty; if(!qty||qty<=0) return alert('Enter quantity > 0');
+      await issueStock({ itemId:issue.itemId, qty, reason:issue.reason, byUid:user?.uid });
+      setIssue({ itemId:'', qty:0, reason:'issue' });
+    }catch(err){ console.error(err); alert(err.message); }
+  }
+
+  async function txResolveAndReserve(tx, request, itemsByIdLocal, itemsByNameMap){
+    const itemsInReq=Array.isArray(request.items)?request.items:[];
+    if(itemsInReq.length===0) throw new Error('Request has no items.');
+    const resolved=itemsInReq.map(it=>{
+      const qty=+it.qty||0; if(!qty||qty<=0) return null;
+      let invId=it.itemId; if(!invId&&it.name){ const f=itemsByNameMap.get(String(it.name).toLowerCase()); if(f) invId=f.id; }
+      if(!invId) throw new Error(`Cannot resolve inventory item for "${it.name||'unknown'}".`);
+      const inv=itemsByIdLocal.get(invId);
+      return { itemId:invId, name:it.name||inv?.name||invId, unit:it.unit||inv?.unit||'', qty, ref:doc(db,'inventory',invId) };
+    }).filter(Boolean);
+    const snaps=[]; for(const r of resolved) snaps.push(await tx.get(r.ref));
+    resolved.forEach((r,i)=>{ const d=snaps[i].data(); const onHand=+(d?.qty??0); const res=+(d?.reservedQty??0);
+      if((onHand-res)<r.qty) throw new Error(`${r.name}: need ${r.qty}, only ${onHand-res} available.`);
+    });
     return { resolved, snaps };
   }
 
-  async function handleApprove(requestId) {
-    if (!admin) return alert('Admin only.');
-    try {
-      await runTransaction(db, async (tx) => {
-        const reqRef = doc(db, 'supplyRequests', requestId);
-        const reqSnap = await tx.get(reqRef);
-        if (!reqSnap.exists()) throw new Error('Request not found.');
-
-        const request = reqSnap.data();
-        const status = request.status || 'pending';
-        if (status !== 'pending') throw new Error(`Request is already ${status}.`);
-
-        const { resolved, snaps } = await txResolveAndReserve(tx, request, itemsById, itemsByNameLower);
-
-        // Reserve by increasing reservedQty
-        resolved.forEach((r, i) => {
-          const d = snaps[i].data();
-          const currentReserved = Number(d?.reservedQty ?? 0);
-          tx.update(r.ref, { reservedQty: currentReserved + r.qty });
-        });
-
-        // Mark request approved + store resolved items (locks the mapping)
-        tx.update(reqRef, {
-          status: 'approved',
-          approvedAt: serverTimestamp(),
-          approvedBy: user?.uid || null,
-          reservedItems: resolved.map(({ itemId, name, unit, qty }) => ({ itemId, name, unit, qty })),
-        });
+  async function handleApprove(id){
+    if(!admin) return alert('Admin only.');
+    try{
+      await runTransaction(db,async(tx)=>{
+        const reqRef=doc(db,'supplyRequests',id); const reqSnap=await tx.get(reqRef);
+        if(!reqSnap.exists()) throw new Error('Request not found.');
+        const request=reqSnap.data(); if((request.status||'pending')!=='pending') throw new Error(`Request is already ${request.status}.`);
+        const { resolved, snaps } = await txResolveAndReserve(tx, request, byId, byNameLower);
+        resolved.forEach((r,i)=>{ const d=snaps[i].data(); const cur=+(d?.reservedQty??0); tx.update(r.ref,{ reservedQty: cur + r.qty }); });
+        tx.update(reqRef,{ status:'approved', approvedAt:serverTimestamp(), approvedBy:user?.uid||null,
+          reservedItems: resolved.map(({itemId,name,unit,qty})=>({itemId,name,unit,qty})) });
       });
-      alert('Reserved stock for this request ✔');
-      setSelectedReq(null);
-    } catch (err) {
-      console.error(err);
-      alert(err.message || String(err));
-    }
+    }catch(err){ console.error(err); alert(err.message||String(err)); }
   }
 
-  async function handleDispatch(requestId) {
-    if (!admin) return alert('Admin only.');
-    try {
-      await runTransaction(db, async (tx) => {
-        const reqRef = doc(db, 'supplyRequests', requestId);
-        const reqSnap = await tx.get(reqRef);
-        if (!reqSnap.exists()) throw new Error('Request not found.');
-        const request = reqSnap.data();
-        if (request.status !== 'approved') throw new Error(`Request is ${request.status || 'not approved'}.`);
-
-        const lines = Array.isArray(request.reservedItems) && request.reservedItems.length
-          ? request.reservedItems
-          : (Array.isArray(request.items) ? request.items : []);
-
-        // Resolve lines to inventory refs
-        const resolved = lines.map((it) => {
-          const qty = Number(it.qty || 0);
-          if (!qty || qty <= 0) return null;
-          const invDocId = it.itemId || itemsByNameLower.get(String(it.name || '').toLowerCase())?.id;
-          if (!invDocId) throw new Error(`Cannot resolve inventory item for dispatch: "${it.name || 'unknown'}"`);
-          return {
-            itemId: invDocId,
-            name: it.name,
-            unit: it.unit || '',
-            qty,
-            ref: doc(db, 'inventory', invDocId),
-          };
+  async function handleDispatch(id){
+    if(!admin) return alert('Admin only.');
+    try{
+      await runTransaction(db,async(tx)=>{
+        const reqRef=doc(db,'supplyRequests',id); const reqSnap=await tx.get(reqRef);
+        if(!reqSnap.exists()) throw new Error('Request not found.');
+        const request=reqSnap.data(); if(request.status!=='approved') throw new Error(`Request is ${request.status||'not approved'}.`);
+        const lines=(Array.isArray(request.reservedItems)&&request.reservedItems.length)?request.reservedItems:(Array.isArray(request.items)?request.items:[]);
+        const resolved=lines.map(it=>{ const qty=+it.qty||0; if(!qty||qty<=0) return null;
+          const invId=it.itemId || byNameLower.get(String(it.name||'').toLowerCase())?.id;
+          if(!invId) throw new Error(`Cannot resolve inventory item for dispatch: "${it.name||'unknown'}"`);
+          return { itemId:invId, name:it.name, unit:it.unit||'', qty, ref:doc(db,'inventory',invId) };
         }).filter(Boolean);
-
-        // Pull snapshots
-        const snaps = [];
-        for (const r of resolved) snaps.push(await tx.get(r.ref));
-
-        // Deduct qty and release reservedQty
-        resolved.forEach((r, i) => {
-          const d = snaps[i].data();
-          const current = Number(d?.qty ?? 0);
-          const reserved = Number(d?.reservedQty ?? 0);
-          const newQty = current - r.qty;
-          const newReserved = reserved - r.qty;
-          if (newQty < 0) throw new Error(`${r.name}: not enough stock to dispatch.`);
-          if (newReserved < 0) throw new Error(`${r.name}: reservation underflow.`);
-          tx.update(r.ref, { qty: newQty, reservedQty: newReserved });
-        });
-
-        tx.update(reqRef, {
-          status: 'dispatched',
-          dispatchedAt: serverTimestamp(),
-          dispatchedBy: user?.uid || null,
-        });
+        const snaps=[]; for(const r of resolved) snaps.push(await tx.get(r.ref));
+        resolved.forEach((r,i)=>{ const d=snaps[i].data(); const cur=+(d?.qty??0); const res=+(d?.reservedQty??0);
+          const newQty=cur-r.qty, newRes=res-r.qty; if(newQty<0) throw new Error(`${r.name}: not enough stock to dispatch.`);
+          if(newRes<0) throw new Error(`${r.name}: reservation underflow.`); tx.update(r.ref,{ qty:newQty, reservedQty:newRes }); });
+        tx.update(reqRef,{ status:'dispatched', dispatchedAt:serverTimestamp(), dispatchedBy:user?.uid||null });
       });
-      alert('Dispatched & deducted stock ✔');
-      setSelectedReq(null);
-    } catch (err) {
-      console.error(err);
-      alert(err.message || String(err));
-    }
+    }catch(err){ console.error(err); alert(err.message||String(err)); }
   }
 
-  async function handleUnapprove(requestId) {
-    if (!admin) return alert('Admin only.');
-    try {
-      await runTransaction(db, async (tx) => {
-        const reqRef = doc(db, 'supplyRequests', requestId);
-        const reqSnap = await tx.get(reqRef);
-        if (!reqSnap.exists()) throw new Error('Request not found.');
-        const request = reqSnap.data();
-        if (request.status !== 'approved') throw new Error(`Request is ${request.status || 'not approved'}.`);
-
-        const lines = Array.isArray(request.reservedItems) && request.reservedItems.length
-          ? request.reservedItems
-          : (Array.isArray(request.items) ? request.items : []);
-
-        // Resolve + pull snapshots
-        const resolved = lines.map((it) => {
-          const qty = Number(it.qty || 0);
-          if (!qty || qty <= 0) return null;
-          const invDocId = it.itemId || itemsByNameLower.get(String(it.name || '').toLowerCase())?.id;
-          if (!invDocId) throw new Error(`Cannot resolve inventory item to release: "${it.name || 'unknown'}"`);
-          return {
-            itemId: invDocId,
-            name: it.name,
-            unit: it.unit || '',
-            qty,
-            ref: doc(db, 'inventory', invDocId),
-          };
+  async function handleUnapprove(id){
+    if(!admin) return alert('Admin only.');
+    try{
+      await runTransaction(db,async(tx)=>{
+        const reqRef=doc(db,'supplyRequests',id); const reqSnap=await tx.get(reqRef);
+        if(!reqSnap.exists()) throw new Error('Request not found.');
+        const request=reqSnap.data(); if(request.status!=='approved') throw new Error(`Request is ${request.status||'not approved'}.`);
+        const lines=(Array.isArray(request.reservedItems)&&request.reservedItems.length)?request.reservedItems:(Array.isArray(request.items)?request.items:[]);
+        const resolved=lines.map(it=>{ const qty=+it.qty||0; if(!qty||qty<=0) return null;
+          const invId=it.itemId || byNameLower.get(String(it.name||'').toLowerCase())?.id;
+          if(!invId) throw new Error(`Cannot resolve inventory item to release: "${it.name||'unknown'}"`);
+          return { itemId:invId, name:it.name, unit:it.unit||'', qty, ref:doc(db,'inventory',invId) };
         }).filter(Boolean);
-
-        const snaps = [];
-        for (const r of resolved) snaps.push(await tx.get(r.ref));
-
-        // Release reservation
-        resolved.forEach((r, i) => {
-          const d = snaps[i].data();
-          const reserved = Number(d?.reservedQty ?? 0);
-          const newReserved = reserved - r.qty;
-          if (newReserved < 0) throw new Error(`${r.name}: reservation underflow on release.`);
-          tx.update(r.ref, { reservedQty: newReserved });
-        });
-
-        // Back to pending and clear reservedItems metadata
-        tx.update(reqRef, {
-          status: 'pending',
-          approvedAt: null,
-          approvedBy: null,
-          reservedItems: [],
-        });
+        const snaps=[]; for(const r of resolved) snaps.push(await tx.get(r.ref));
+        resolved.forEach((r,i)=>{ const d=snaps[i].data(); const res=+(d?.reservedQty??0);
+          const newRes=res-r.qty; if(newRes<0) throw new Error(`${r.name}: reservation underflow on release.`); tx.update(r.ref,{ reservedQty:newRes }); });
+        tx.update(reqRef,{ status:'pending', approvedAt:null, approvedBy:null, reservedItems:[] });
       });
-
-      alert('Reservation released; request back to pending.');
-      setSelectedReq(null);
-    } catch (err) {
-      console.error(err);
-      alert(err.message || String(err));
-    }
+    }catch(err){ console.error(err); alert(err.message||String(err)); }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Render
-  // ─────────────────────────────────────────────────────────────────────────────
+  function selectItem(id){
+    setReceive(s=>({...s,itemId:id}));
+    setIssue(s=>({...s,itemId:id}));
+  }
+
+  function exportVisibleAsCSV(){
+    const head=['name','unit','qty','minQty','reservedQty'];
+    const rows=visible.map(it=>[it.name??'', it.unit??'', +it.qty||0, +it.minQty||0, +it.reservedQty||0]);
+    const esc=s=>{ const v=String(s??''); return (v.includes('"')||v.includes(',')||v.includes('\n'))?`"${v.replace(/"/g,'""')}"`:v; };
+    const csv=[head.map(esc).join(','), ...rows.map(r=>r.map(esc).join(','))].join('\n');
+    const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
+    const a=document.createElement('a'); a.href=url; a.download=`inventory_${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url);
+  }
+  function exportReorderCSV(){
+    const head=['name','unit','currentQty','reservedQty','minQty','qtyToOrder'];
+    const rows=items.map(it=>{ const qty=+it.qty||0, min=+it.minQty||0, res=+it.reservedQty||0; const need=Math.max(0,min-(qty-res));
+      return {name:it.name||'', unit:it.unit||'', qty, res, min, need}; }).filter(r=>r.min>0&&r.need>0);
+    if(!rows.length){ alert('No low items that need reordering.'); return; }
+    const esc=s=>{ const v=String(s??''); return (v.includes('"')||v.includes(',')||v.includes('\n'))?`"${v.replace(/"/g,'""')}"`:v; };
+    const csv=[head.map(esc).join(','), ...rows.map(r=>[r.name,r.unit,r.qty,r.res,r.min,r.need].map(esc).join(','))].join('\n');
+    const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
+    const a=document.createElement('a'); a.href=url; a.download=`reorder_low_${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url);
+  }
+
   return (
     <>
       <TopNav />
-      <div className="main-wrapper admin-dashboard-layout">
-        {/* Inventory Overview */}
-        <div className="glass-card progress-summary-card" style={{ gridColumn: '1 / -1' }}>
-          <h3 style={{ marginTop: 0 }}>Central Stock — Overview</h3>
-
-          {/* --- Full-width Pending + Stock Actions --- */}
-          <div className="stock-actions-grid">
-            {/* Pending Requests */}
-            <div className="glass-subcard">
-              <h3>Track Orders</h3>
-              {pendingReqs.length === 0 ? (
-                <p className="muted">No pending requests.</p>
-              ) : (
-                pendingReqs.map((r) => (
-                  <div
-                    key={r.id}
-                    className="card-inner"
-                    style={{ padding: 8, marginBottom: 8, cursor: 'pointer' }}
-                    onClick={() => setSelectedReq(r)}
-                  >
-                    <div className="row between" style={{ alignItems: 'flex-start' }}>
-                      <strong>{r.trackId}</strong>
-                      <span className="small muted">{r.status || 'pending'}</span>
-                    </div>
-
-                    {!!r.note && (
-                      <div className="small" style={{ marginTop: 4, opacity: 0.8 }}>
-                        <em>Note attached — click to view</em>
-                      </div>
-                    )}
-
-                    <ul style={{ marginTop: 6 }}>
-                      {r.items?.map((it, idx) => (
-                        <li key={idx} className="small">
-                          {it.name} — {it.qty} {it.unit}
-                        </li>
-                      ))}
-                    </ul>
-
-                    {admin && (
-                      <div className="pending-actions" style={{ marginTop: 10 }}>
-                        <button
-                          className="button-primary"
-                          style={{ width: '100%' }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleApprove(r.id);
-                          }}
-                        >
-                          Approve & Reserve
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* Approved Reservations */}
-            <div className="glass-subcard">
-              <h3>Approved Reservations</h3>
-              {approvedReqs.length === 0 ? (
-                <p className="muted">No approved reservations.</p>
-              ) : (
-                approvedReqs.map((r) => (
-                  <div
-                    key={r.id}
-                    className="card-inner"
-                    style={{ padding: 8, marginBottom: 8, cursor: 'pointer' }}
-                    onClick={() => setSelectedReq(r)}
-                  >
-                    <div className="row between" style={{ alignItems: 'flex-start' }}>
-                      <strong>{r.trackId}</strong>
-                      <span className="small muted">approved</span>
-                    </div>
-
-                    <ul style={{ marginTop: 6 }}>
-                      {(r.reservedItems?.length ? r.reservedItems : r.items)?.map((it, idx) => (
-                        <li key={idx} className="small">
-                          {it.name} — {it.qty} {it.unit}
-                        </li>
-                      ))}
-                    </ul>
-
-                    {admin && (
-                      <div className="row gap8" style={{ marginTop: 10 }}>
-                        <button
-                          className="button-primary"
-                          style={{ flex: 1 }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDispatch(r.id);
-                          }}
-                        >
-                          Dispatch Now
-                        </button>
-                        <button
-                          className="button-secondary"
-                          style={{ flex: 1 }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleUnapprove(r.id);
-                          }}
-                        >
-                          Unapprove (Release)
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* Stock Actions */}
-            <div className="glass-subcard stock-actions-card">
-              <h3>Stock Control</h3>
-              <div className="actions-two-col">
-                {/* Add New Item */}
-                <div>
-                  <h4 style={{ margin: '6px 0 8px 0' }}>Add New Item to Stock</h4>
-                  <form onSubmit={handleCreateItem}>
-                    <input
-                      className="input-field"
-                      placeholder="Item name (e.g., Coke 330ml)"
-                      value={newItem.name}
-                      onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-                    />
-                    <div className="row gap12" style={{ flexWrap: 'wrap' }}>
-                      <input
-                        className="input-field"
-                        placeholder="Unit (e.g., can, pcs)"
-                        value={newItem.unit}
-                        onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
-                      />
-                      <select
-                        className="input-field"
-                        value={newItem.category}
-                        onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
-                      >
-                        <option value="drinks">drinks</option>
-                        <option value="spares - chassis">spares - chassis</option>
-                        <option value="spares - drivetrain">spares - drivetrain</option>
-                        <option value="essentials">essentials</option>
-                      </select>
-                    </div>
-                    <div className="row gap12" style={{ flexWrap: 'wrap' }}>
-                      <input
-                        className="input-field"
-                        type="number"
-                        placeholder="Min qty"
-                        value={newItem.minQty}
-                        onChange={(e) => setNewItem({ ...newItem, minQty: e.target.value })}
-                      />
-                      <input
-                        className="input-field"
-                        type="number"
-                        placeholder="Max qty (optional)"
-                        value={newItem.maxQty}
-                        onChange={(e) => setNewItem({ ...newItem, maxQty: e.target.value })}
-                      />
-                      <input
-                        className="input-field"
-                        type="number"
-                        placeholder="Initial qty"
-                        value={newItem.initialQty}
-                        onChange={(e) => setNewItem({ ...newItem, initialQty: e.target.value })}
-                      />
-                    </div>
-                    <button className="button-primary" type="submit">Save Item</button>
-                  </form>
-                </div>
-
-                {/* Receive Stock */}
-                <div>
-                  <h4 style={{ margin: '6px 0 8px 0' }}>Check in new Stock</h4>
-                  <form onSubmit={handleReceive}>
-                    <select
-                      className="input-field"
-                      value={receive.itemId}
-                      onChange={(e) => setReceive({ ...receive, itemId: e.target.value })}
-                    >
-                      <option value="">Select item…</option>
-                      {items.map((it) => (
-                        <option key={it.id} value={it.id}>{it.name}</option>
-                      ))}
-                    </select>
-                    <div className="row gap12" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
-                      <input
-                        className="input-field"
-                        type="number"
-                        placeholder="Quantity"
-                        value={receive.qty}
-                        onChange={(e) => setReceive({ ...receive, qty: e.target.value })}
-                        style={{ flex: '0 0 180px' }}
-                      />
-                      <QtyNudger
-                        onNudge={(delta) =>
-                          setReceive((s) => ({ ...s, qty: Math.max(0, Number(s.qty || 0) + delta) }))
-                        }
-                      />
-                      <input
-                        className="input-field"
-                        placeholder="Reason (optional)"
-                        value={receive.reason}
-                        onChange={(e) => setReceive({ ...receive, reason: e.target.value })}
-                        style={{ flex: 1 }}
-                      />
-                    </div>
-                    <button className="button-primary" type="submit">Add to Inventory</button>
-                  </form>
-                </div>
-
-                {/* Manual Issue / Adjust */}
-                <div>
-                  <h4 style={{ margin: '6px 0 8px 0' }}>Issue / Adjust Stock</h4>
-                  <form onSubmit={handleIssue}>
-                    <select
-                      className="input-field"
-                      value={issue.itemId}
-                      onChange={(e) => setIssue({ ...issue, itemId: e.target.value })}
-                    >
-                      <option value="">Select item…</option>
-                      {items.map((it) => (
-                        <option key={it.id} value={it.id}>{it.name}</option>
-                      ))}
-                    </select>
-                    <div className="row gap12" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
-                      <input
-                        className="input-field"
-                        type="number"
-                        placeholder="Quantity"
-                        value={issue.qty}
-                        onChange={(e) => setIssue({ ...issue, qty: e.target.value })}
-                        style={{ flex: '0 0 180px' }}
-                      />
-                      <QtyNudger
-                        onNudge={(delta) =>
-                          setIssue((s) => ({ ...s, qty: Math.max(0, Number(s.qty || 0) + delta) }))
-                        }
-                      />
-                      <input
-                        className="input-field"
-                        placeholder="Reason (e.g., usage, damage)"
-                        value={issue.reason}
-                        onChange={(e) => setIssue({ ...issue, reason: e.target.value })}
-                        style={{ flex: 1 }}
-                      />
-                    </div>
-                    <button className="button-secondary" type="submit">Deduct from Inventory</button>
-                  </form>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Toolbar (above the list) */}
-          <div className="stock-toolbar" style={{ marginTop: 12, marginBottom: 12 }}>
-            <select
-              className="input-field"
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              title="Filter by category"
-            >
-              {categoryOptions.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt === 'all'
-                    ? `Choose category (${items.length})`
-                    : `${opt} (${categoryCounts[opt] || 0})`}
-                </option>
-              ))}
+      <div className="stockroom-wrap">
+        {/* Slim toolbar */}
+        <div className="srm-toolbar card">
+          <input
+            ref={searchRef}
+            className="input srm-search"
+            placeholder="Search items, units, categories…  (/)"
+            value={search}
+            onChange={(e)=>setSearch(e.target.value)}
+            aria-label="Search inventory"
+          />
+          <div className="srm-controls">
+            <button className={`seg ${lowOnly?'active':''}`} onClick={()=>setLowOnly(v=>!v)}>
+              {lowOnly ? 'Low only' : 'All items'}
+            </button>
+            <select className="seg" value={sortBy} onChange={(e)=>setSortBy(e.target.value)} aria-label="Sort inventory">
+              <option value="minGap">Closest to min</option>
+              <option value="qtyAsc">Qty ↑</option>
+              <option value="qtyDesc">Qty ↓</option>
+              <option value="name">Name A–Z</option>
             </select>
-
-            <input
-              className="input-field"
-              placeholder="Search items (name, category, unit)…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              title="Search"
-            />
+            <div className="srm-right">
+              <button className="seg" onClick={exportVisibleAsCSV}>Export CSV</button>
+              <button className="seg" onClick={exportReorderCSV}>Reorder CSV</button>
+            </div>
           </div>
-
-          {/* List view (forced) */}
-          <div className="glass-subcard" style={{ overflowX: 'auto' }}>
-            <table
-              className={`table dark ${density === 'compact' ? 'table-compact' : ''} responsive`}
-              style={{ width: '100%' }}
-            >
-              <thead>
-                <tr>
-                  <th style={{ textAlign: 'left' }}>Name</th>
-                  <th>Category</th>
-                  <th>Unit</th>
-                  <th>Qty</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleItems.map((it) => {
-                  const qty = Number(it.qty || 0);
-                  const min = Number(it.minQty || 0);
-                  const res = Number(it.reservedQty || 0);
-                  const low = qty <= min;
-                  return (
-                    <tr key={it.id}>
-                      <td data-label="Name" className="ellipsis" title={it.name}>{it.name}</td>
-                      <td data-label="Category" className="muted">{it.category || '—'}</td>
-                      <td data-label="Unit">{it.unit || '—'}</td>
-                      <td data-label="Qty" title={`Reserved: ${res}`}>{qty}</td>
-                      <td data-label="Status">
-                        <span className="chip" style={{ background: low ? '#ff6b6b' : '#2f2f2f' }}>
-                          {low ? 'Low' : 'OK'}
-                        </span>
-                        {res > 0 && (
-                          <span className="chip" style={{ marginLeft: 6, background: '#2a2a2a' }}>
-                            Res {res}
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {visibleItems.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="muted" style={{ textAlign: 'center' }}>
-                      No items match your filters.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <div className="tiny muted srm-live">{lastUpdated}</div>
         </div>
+
+        {/* 1) Requests — top, full width */}
+        <section className="card">
+          <div className="card-h">Requests</div>
+          <div className="reqs">
+            {pending.length===0 && <div className="muted small">No pending requests.</div>}
+            {pending.slice(0,10).map(r=>(
+              <div key={r.id} className="req">
+                <div className="req-main" onClick={()=>setSelectedReq(r)}>
+                  <div className="req-title">{r.trackId||'Request'}</div>
+                  <div className="muted tiny">{r.createdAt?`${timeAgo(r.createdAt)} ago`:'—'}</div>
+                </div>
+                {admin && <div className="req-actions"><button className="btn primary" onClick={()=>handleApprove(r.id)}>Approve</button></div>}
+              </div>
+            ))}
+            {approved.length>0 && (
+              <>
+                <div className="divider">Approved</div>
+                {approved.slice(0,10).map(r=>(
+                  <div key={r.id} className="req">
+                    <div className="req-main" onClick={()=>setSelectedReq(r)}>
+                      <div className="req-title">{r.trackId||'Request'}</div>
+                      <div className="muted tiny">{r.approvedAt?`approved ${timeAgo(r.approvedAt)} ago`:''}</div>
+                    </div>
+                    {admin && (
+                      <div className="req-actions">
+                        <button className="btn primary" onClick={()=>handleDispatch(r.id)}>Dispatch</button>
+                        <button className="btn ghost" onClick={()=>handleUnapprove(r.id)}>Unapprove</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        </section>
+
+        {/* 2) Quick actions — now its own full-width card under requests */}
+        <section className="card">
+          <div className="card-h">Quick actions</div>
+          <div className="qa-grid">
+            <form onSubmit={handleReceive} className="qa-row">
+              <select className="input" value={receive.itemId} onChange={(e)=>setReceive({...receive,itemId:e.target.value})}>
+                <option value="">Receive → select item…</option>
+                {items.map(it=>(<option key={it.id} value={it.id}>{it.name}</option>))}
+              </select>
+              <input className="input" type="number" placeholder="Qty" value={receive.qty} onChange={(e)=>setReceive({...receive,qty:e.target.value})}/>
+              <button className="btn primary" disabled={!admin}>Receive</button>
+            </form>
+
+            <form onSubmit={handleIssue} className="qa-row">
+              <select className="input" value={issue.itemId} onChange={(e)=>setIssue({...issue,itemId:e.target.value})}>
+                <option value="">Issue → select item…</option>
+                {items.map(it=>(<option key={it.id} value={it.id}>{it.name}</option>))}
+              </select>
+              <input className="input" type="number" placeholder="Qty" value={issue.qty} onChange={(e)=>setIssue({...issue,qty:e.target.value})}/>
+              <button className="btn" disabled={!admin}>Issue</button>
+            </form>
+
+            <div className="muted small">Add item</div>
+            <form onSubmit={handleCreateItem} className="qa-row add">
+              <input className="input" placeholder="Name" value={newItem.name} onChange={(e)=>setNewItem({...newItem,name:e.target.value})}/>
+              <input className="input" placeholder="Unit" value={newItem.unit} onChange={(e)=>setNewItem({...newItem,unit:e.target.value})}/>
+              <input className="input" type="number" placeholder="Min" value={newItem.minQty} onChange={(e)=>setNewItem({...newItem,minQty:e.target.value})}/>
+              <input className="input" type="number" placeholder="Max" value={newItem.maxQty} onChange={(e)=>setNewItem({...newItem,maxQty:e.target.value})}/>
+              <input className="input" type="number" placeholder="Start qty" value={newItem.initialQty} onChange={(e)=>setNewItem({...newItem,initialQty:e.target.value})}/>
+              <button className="btn primary" disabled={!admin}>Save</button>
+            </form>
+          </div>
+        </section>
+
+        {/* 3) Inventory — full width, collapsible categories (closed by default) */}
+        <section className="card">
+          <div className="card-h">Inventory</div>
+          {grouped.length===0 && (<div className="muted small">No items.</div>)}
+
+          {grouped.map(([cat, arr])=>(
+            <details key={cat} className="srm-cat">
+              <summary className="srm-cat-sum">
+                <span className="srm-cat-name">{cat}</span>
+                <span className="srm-badge">{arr.length}</span>
+              </summary>
+
+              <table className="table responsive srm-table">
+                <thead>
+                  <tr>
+                    <th style={{textAlign:'left'}}>Item</th>
+                    <th>Qty</th>
+                    <th>Reserved</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {arr.map(it=>{
+                    const qty=+it.qty||0, min=+it.minQty||0, res=+it.reservedQty||0;
+                    const low = qty<=min; const critical = min>0 && qty<=Math.floor(min*0.5);
+                    const coverPct = min>0 ? clamp(Math.round((qty/min)*100)) : null;
+                    return (
+                      <tr
+                        key={it.id}
+                        className={`${low?'row-low':''} ${critical?'row-critical':''}`}
+                        onClick={()=>selectItem(it.id)}
+                        style={{cursor:'pointer'}}
+                      >
+                        <td data-label="Item" className="ellipsis">{it.name}{it.unit?<span className="tiny muted"> · {it.unit}</span>:null}</td>
+                        <td data-label="Qty">{qty}</td>
+                        <td data-label="Reserved">{res>0?res:'—'}</td>
+                        <td data-label="Status">
+                          <span className={`pill ${low?'danger':'ok'}`}>{low?'Low':'OK'}</span>
+                          {coverPct!=null && <div className="bar"><div className="fill" style={{width:`${coverPct}%`}}/></div>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </details>
+          ))}
+        </section>
       </div>
 
-      {/* Order details modal */}
+      {/* Modal */}
       {selectedReq && (
-        <div
-          className="modal-overlay"
-          onClick={() => setSelectedReq(null)}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            className="modal-card glass-card"
-            onClick={(e) => e.stopPropagation()}
-            style={{ width: 'min(720px, 96vw)' }}
-          >
-            <div className="row between" style={{ alignItems: 'center' }}>
-              <h3 style={{ margin: 0 }}>{selectedReq.trackId} — Order Details</h3>
-              <button className="button-secondary" onClick={() => setSelectedReq(null)}>Close</button>
+        <div className="modal" onClick={()=>setSelectedReq(null)} role="dialog" aria-modal="true">
+          <div className="modal-card" onClick={(e)=>e.stopPropagation()}>
+            <div className="modal-h">
+              <div className="h">{selectedReq.trackId || 'Request'}</div>
+              <button className="btn ghost" onClick={()=>setSelectedReq(null)}>Close</button>
             </div>
-
-            <div className="small muted" style={{ marginTop: 6 }}>
+            <div className="muted tiny" style={{marginBottom:8}}>
               Status: <strong>{selectedReq.status || 'pending'}</strong>
               {selectedReq.createdAt && <> · Created: {fmtDateTime(selectedReq.createdAt)}</>}
               {selectedReq.approvedAt && <> · Approved: {fmtDateTime(selectedReq.approvedAt)}</>}
-              {selectedReq.fulfilledAt && <> · Fulfilled: {fmtDateTime(selectedReq.fulfilledAt)}</>}
+              {selectedReq.dispatchedAt && <> · Dispatched: {fmtDateTime(selectedReq.dispatchedAt)}</>}
             </div>
-
-            {selectedReq.note && (
-              <div className="glass-card" style={{ marginTop: 12, padding: 12 }}>
-                <div className="small muted" style={{ marginBottom: 6 }}>Note</div>
-                <div style={{ whiteSpace: 'pre-wrap' }}>{selectedReq.note}</div>
-              </div>
-            )}
-
-            {selectedReq.photoURL && (
-              <div style={{ marginTop: 12 }}>
-                <div className="small muted" style={{ marginBottom: 6 }}>Attachment</div>
-                <img
-                  src={selectedReq.photoURL}
-                  alt="attachment"
-                  style={{
-                    maxWidth: '100%',
-                    borderRadius: 12,
-                    border: '1px solid rgba(255,255,255,0.1)'
-                  }}
-                />
-              </div>
-            )}
-
-            <div className="glass-card" style={{ marginTop: 12, padding: 12 }}>
-              <div className="small muted" style={{ marginBottom: 6 }}>Items</div>
-              <ul style={{ margin: 0 }}>
-                {(selectedReq.reservedItems?.length ? selectedReq.reservedItems : selectedReq.items)?.map((line, i) => (
-                  <li key={i} className="small">
-                    {line.name} — {line.qty} {line.unit}
-                  </li>
+            {selectedReq.note && (<div className="note">{selectedReq.note}</div>)}
+            {selectedReq.photoURL && (<img src={selectedReq.photoURL} alt="" className="attachment" />)}
+            <div className="sub">
+              <div className="muted tiny">Items</div>
+              <ul className="lines">
+                {(selectedReq.reservedItems?.length?selectedReq.reservedItems:selectedReq.items)?.map((line,i)=>(
+                  <li key={i}>{line.name} — {line.qty} {line.unit}</li>
                 ))}
               </ul>
             </div>
-
-            {admin && (selectedReq.status === 'pending' || selectedReq.status === 'approved') && (
-              <div style={{ marginTop: 14 }} className="row gap8">
-                {selectedReq.status === 'pending' && (
-                  <button
-                    className="button-primary"
-                    style={{ flex: 1 }}
-                    onClick={() => handleApprove(selectedReq.id)}
-                  >
-                    Approve & Reserve
-                  </button>
-                )}
-                {selectedReq.status === 'approved' && (
+            {admin && (
+              <div className="actions">
+                {selectedReq.status==='pending' && <button className="btn primary" onClick={()=>handleApprove(selectedReq.id)}>Approve & Reserve</button>}
+                {selectedReq.status==='approved' && (
                   <>
-                    <button
-                      className="button-primary"
-                      style={{ flex: 1 }}
-                      onClick={() => handleDispatch(selectedReq.id)}
-                    >
-                      Dispatch
-                    </button>
-                    <button
-                      className="button-secondary"
-                      style={{ flex: 1 }}
-                      onClick={() => handleUnapprove(selectedReq.id)}
-                    >
-                      Unapprove (Release)
-                    </button>
+                    <button className="btn primary" onClick={()=>handleDispatch(selectedReq.id)}>Dispatch</button>
+                    <button className="btn ghost" onClick={()=>handleUnapprove(selectedReq.id)}>Unapprove</button>
                   </>
                 )}
               </div>
@@ -888,59 +417,109 @@ export default function StockRoom() {
         </div>
       )}
 
-      {/* Scoped tweaks: compact toolbar + full-width sections + modal */}
       <style>{`
-        /* Toolbar (above the list) */
-        .stock-toolbar {
-          display: grid;
-          grid-template-columns: minmax(220px, 320px) 1fr;
-          gap: 8px;
-        }
-        .stock-toolbar .input-field {
-          height: 36px;
-          padding: 6px 10px;
-          font-size: 14px;
-          border-radius: 10px;
-        }
+        :root { --glass:#15171a; --border:#2a2d31; --muted:#a4a6ab; --accent:#5eead4; }
+        * { box-sizing:border-box; }
+        .muted{ color: var(--muted); } .tiny{ font-size:12px; } .small{ font-size:13px; }
+        .ellipsis{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
-        /* Full-width sections */
-        .stock-actions-grid {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 12px;
-          margin-top: 8px;
-        }
+        .stockroom-wrap{ max-width:1200px; margin:0 auto; padding:10px 10px 18px; }
+        .card{ background:#17181a; border:1px solid var(--border); border-radius:14px; padding:10px; margin-bottom:10px; }
+        .card-h{ font-weight:700; margin-bottom:8px; }
 
-        .actions-two-col {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 16px;
+        /* Toolbar (tight) */
+        .srm-toolbar.card{ background: var(--glass); }
+        .srm-toolbar{ display:grid; gap:6px; }
+        .srm-search{ width:100%; background:#111216; border:1px solid var(--border); border-radius:10px; padding:9px 10px; color:#fff; }
+        .seg{ background:#191b20; border:1px solid var(--border); border-radius:10px; padding:7px 10px; color:#ddd; }
+        .seg.active{ outline:2px solid var(--accent); }
+        .srm-controls{ display:grid; grid-template-columns: auto auto 1fr; gap:6px; align-items:center; }
+        .srm-right{ justify-self:end; display:flex; gap:6px; }
+        .srm-live{ text-align:right; }
+
+        /* Requests */
+        .reqs{ display:flex; flex-direction:column; gap:6px; }
+        .req{ display:flex; gap:8px; justify-content:space-between; align-items:center; padding:8px; border:1px solid var(--border); border-radius:10px; background:#101216; }
+        .req:hover{ background:#0d0f13; }
+        .req-main{ cursor:pointer; }
+        .req-title{ font-weight:600; }
+        .req-actions{ display:flex; gap:6px; }
+        .divider{ margin:6px 0; padding-top:6px; border-top:1px dashed var(--border); color:var(--muted); font-size:12px; }
+
+        /* Quick actions — overflow-safe */
+        .qa-grid{ display:flex; flex-direction:column; gap:6px; }
+        .qa-row{
+          display:grid;
+          /* input | qty | action */
+          grid-template-columns: minmax(0,1fr) 84px 100px;
+          gap:6px; align-items:center;
         }
-        @media (max-width: 880px) {
-          .actions-two-col { grid-template-columns: 1fr; }
-          .stock-toolbar { grid-template-columns: 1fr; }
+        .qa-row > *{ min-width:0; }
+        .input{ width:100%; background:#111216; border:1px solid var(--border); border-radius:8px; padding:8px 9px; color:#fff; }
+        .btn{ width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border); background:#191b20; color:#e7e8ea; }
+        .btn.ghost{ background:#121419; color:#c9cace; }
+        .btn.primary{ background:#1c3a31; color:#c0f3e7; border-color:#2b564a; }
+        .btn:disabled{ opacity:0.5; cursor:not-allowed; }
+
+        /* Add item: inputs on one row, Save full width below */
+        .qa-row.add{ grid-template-columns: minmax(0,1fr) 72px 72px 72px 88px; }
+        .qa-row.add .btn{ grid-column: 1 / -1; justify-self: stretch; }
+
+        /* Collapsible categories */
+        .srm-cat{ border:1px solid var(--border); border-radius:12px; background:#111216; margin-bottom:8px; overflow:hidden; }
+        .srm-cat-sum{ list-style:none; display:flex; justify-content:space-between; align-items:center; gap:10px; padding:9px 12px; background:#0e1014; cursor:pointer; }
+        .srm-cat-sum::-webkit-details-marker{ display:none; }
+        .srm-cat-sum::after{ content:'▸'; font-size:12px; color:#9aa0a6; margin-left:8px; }
+        .srm-cat[open] .srm-cat-sum::after{ content:'▾'; }
+        .srm-cat-name{ font-weight:700; }
+        .srm-badge{ background:#1a2226; color:#d7e2e6; border:1px solid var(--border); padding:2px 8px; border-radius:999px; font-size:12px; }
+
+        /* Table (no Min/Select) */
+        .srm-table{ width:100%; border-collapse: separate; border-spacing: 0 6px; }
+        .srm-table thead th{ text-align:center; font-weight:600; color:var(--muted); background:#0c0e12; }
+        .srm-table tbody td{ background:#101216; border:1px solid var(--border); padding:8px; text-align:center; }
+        .srm-table tbody tr td:first-child{ border-radius:10px 0 0 10px; text-align:left; }
+        .srm-table tbody tr td:last-child { border-radius:0 10px 10px 0; }
+        .row-low td{ background:#1b1414; } .row-critical td{ background:#241010; }
+
+        .pill{ display:inline-block; padding:2px 8px; font-size:12px; border-radius:999px; border:1px solid var(--border); }
+        .pill.ok{ background:#1b2b20; color:#a7e3b8; border-color:#2b4534; }
+        .pill.danger{ background:#3c2222; color:#ffc9c9; border-color:#5a3030; }
+
+        .bar{ height:6px; width:88px; border-radius:999px; overflow:hidden; background:#1c1f24; border:1px solid var(--border); margin:4px auto 0; }
+        .bar .fill{ height:100%; background:linear-gradient(90deg,#22c55e,#14b8a6); }
+
+        /* Mobile card-table & toolbar stack */
+        @media (max-width: 720px){
+          .srm-controls{ grid-template-columns: 1fr; }
+          .srm-right{ justify-self:stretch; }
+          .srm-right .seg{ width:100%; }
+          .srm-live{ text-align:left; }
+
+          .qa-row{ grid-template-columns: minmax(0,1fr) 1fr; }
+          .qa-row .btn{ grid-column: 1 / -1; }
+          .qa-row.add{ grid-template-columns: 1fr 1fr; }
+
+          .srm-table thead{ display:none; }
+          .srm-table tbody tr{ display:block; border:1px solid var(--border); border-radius:12px; background:#181a1c; padding:8px 8px 6px; margin:8px 0; }
+          .srm-table tbody tr + tr{ margin-top:10px; }
+          .srm-table tbody td{ display:grid; grid-template-columns: 42% 1fr; gap:8px; padding:8px 6px; border:none; background:transparent; text-align:left; }
+          .srm-table tbody td::before{ content: attr(data-label); color: var(--muted); font-size:12px; }
+          .srm-table tbody tr td:first-child{ border-radius:0; }
+          .srm-table tbody tr td:last-child{ border-radius:0; }
+          .bar{ width:100%; margin-left:0; }
         }
 
         /* Modal */
-        .modal-overlay {
-          position: fixed;
-          inset: 0;
-          background: rgba(0,0,0,0.55);
-          backdrop-filter: blur(2px);
-          display: grid;
-          place-items: center;
-          z-index: 999;
-          padding: 14px;
-        }
-        .modal-card {
-          padding: 16px;
-          border-radius: 16px;
-          border: 1px solid rgba(255,255,255,0.08);
-          background: rgba(10,10,10,0.9);
-          max-height: 92vh;
-          overflow: auto;
-          box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-        }
+        .modal{ position:fixed; inset:0; background:rgba(0,0,0,0.5); display:grid; place-items:center; padding:10px; z-index:999; }
+        .modal-card{ width:min(760px,96vw); background:#0c0e12; border:1px solid var(--border); border-radius:14px; padding:12px; max-height:92vh; overflow:auto; }
+        .modal-h{ display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+        .modal-h .h{ font-weight:700; }
+        .note{ background:#0f1014; border:1px dashed var(--border); padding:8px; border-radius:10px; white-space:pre-wrap; margin-bottom:8px; }
+        .attachment{ width:100%; border-radius:10px; border:1px solid var(--border); margin-bottom:8px; }
+        .sub{ background:#0f1014; border:1px solid var(--border); border-radius:10px; padding:8px; }
+        .lines{ margin:6px 0 0; padding-left:18px; }
+        .actions{ display:flex; gap:6px; margin-top:8px; }
       `}</style>
     </>
   );
