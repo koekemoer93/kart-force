@@ -33,7 +33,7 @@ export default function TopNav() {
     { label: 'Stock Room', path: '/stockroom' },
     //{ label: 'Task Creator', path: '/admin-task-manager' },
    // { label: 'Register User', path: '/register' },
-    { label: 'HR Hub', path: '/admin-hr-hub' },
+    //{ label: 'HR Hub', path: '/admin-hr-hub' },
   ];
 
   const hrFinanceButtons = [
